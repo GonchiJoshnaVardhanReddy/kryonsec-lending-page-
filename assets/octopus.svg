@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 600" role="img" aria-labelledby="title desc">
+  <title id="title">Kryonsec eight-agent system map</title>
+  <desc id="desc">A near-black octopus silhouette with eight labeled limbs for the Kryonsec security subagents.</desc>
+  <style>
+    .body { fill: #1a1a1a; }
+    .tentacle { fill: none; stroke: #1a1a1a; stroke-linecap: round; stroke-linejoin: round; stroke-width: 31; }
+    .eye { fill: #f5f5f0; }
+    .label-tag { fill: #f5f5f0; stroke: #1a1a1a; stroke-width: 2; }
+    .label { fill: #1a1a1a; font: 13px 'Courier New', monospace; font-weight: 700; letter-spacing: 1px; }
+    .label-accent { fill: #a855f7; font: 10px 'Courier New', monospace; font-weight: 700; letter-spacing: 1px; }
+  </style>
+
+  <path class="tentacle" d="M290 326 C250 355 218 386 173 389 C140 391 119 378 105 357" />
+  <path class="tentacle" d="M298 349 C280 395 262 429 230 451 C204 469 177 471 153 462" />
+  <path class="tentacle" d="M320 358 C319 412 322 458 300 488 C286 507 265 515 243 513" />
+  <path class="tentacle" d="M346 354 C363 407 383 445 418 459 C449 472 477 466 494 451" />
+  <path class="tentacle" d="M358 329 C408 354 448 380 493 379 C526 379 548 362 559 339" />
+  <path class="tentacle" d="M365 293 C418 287 458 268 489 240 C509 222 513 201 507 184" />
+  <path class="tentacle" d="M335 278 C325 228 319 195 296 172 C277 153 254 151 235 160" />
+  <path class="tentacle" d="M306 278 C266 249 231 231 194 235 C163 238 143 256 134 277" />
+
+  <path class="body" d="M267 303 C265 235 284 194 350 194 C416 194 435 235 433 303 C431 350 404 382 350 384 C296 382 269 350 267 303Z" />
+  <circle class="eye" cx="324" cy="276" r="8" /><circle class="eye" cx="376" cy="276" r="8" />
+
+  <g class="label">
+    <rect class="label-tag" x="20" y="330" width="134" height="43" /><text x="87" y="350" text-anchor="middle">DISCOVER</text><text class="label-accent" x="87" y="364" text-anchor="middle">RECON PASSIVE</text>
+    <rect class="label-tag" x="74" y="441" width="134" height="43" /><text x="141" y="461" text-anchor="middle">ANALYZE</text><text class="label-accent" x="141" y="475" text-anchor="middle">HYPOTHESIS</text>
+    <rect class="label-tag" x="177" y="515" width="134" height="43" /><text x="244" y="535" text-anchor="middle">FIX</text><text class="label-accent" x="244" y="549" text-anchor="middle">DEFENSE</text>
+    <rect class="label-tag" x="489" y="441" width="134" height="43" /><text x="556" y="461" text-anchor="middle">VERIFY</text><text class="label-accent" x="556" y="475" text-anchor="middle">EVIDENCE</text>
+    <rect class="label-tag" x="546" y="330" width="134" height="43" /><text x="613" y="350" text-anchor="middle">INVESTIGATE</text><text class="label-accent" x="613" y="364" text-anchor="middle">ROOT CAUSE</text>
+    <rect class="label-tag" x="515" y="128" width="134" height="43" /><text x="582" y="148" text-anchor="middle">DETECT</text><text class="label-accent" x="582" y="162" text-anchor="middle">ANOMALIES</text>
+    <rect class="label-tag" x="229" y="66" width="134" height="43" /><text x="296" y="86" text-anchor="middle">REPORT</text><text class="label-accent" x="296" y="100" text-anchor="middle">ACTIONABLE</text>
+    <rect class="label-tag" x="10" y="215" width="134" height="43" /><text x="77" y="235" text-anchor="middle">MONITOR</text><text class="label-accent" x="77" y="249" text-anchor="middle">STATUS</text>
+  </g>
+</svg>
