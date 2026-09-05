@@ -24,9 +24,7 @@ Recommended free host: Cloudflare Pages.
 
 The production output is this entire directory. `_headers`, `robots.txt`, `sitemap.xml`, `index.html`, `feedback.html`, `roadmap.html`, `style.css`, `script.js`, `theme-init.js`, and `assets/` must be deployed together.
 
-The homepage waitlist currently posts to the separate waitlist webhook supplied for this build. Because it uses a `trycloudflare.com` quick tunnel, replace the form action in `index.html` with the stable `n8n.kryonsec.in` waitlist webhook before publishing.
-
-The feedback page posts to its separate feedback webhook supplied for this build. Because it also uses a `trycloudflare.com` quick tunnel, replace the form action in `feedback.html` with the stable production webhook before publishing.
+The homepage waitlist form posts to the production webhook `https://n8n.kryonsec.in/webhook/kryon/waitlist`, and the feedback form posts to `https://n8n.kryonsec.in/webhook/kryon/feedback`. Both are plain HTML form POSTs into a hidden iframe, so no CORS configuration is needed. If the webhook paths ever change, update the `action` attribute of `#waitlist-form` in `index.html` and `#feedback-form` in `feedback.html`, plus the matching CSP `form-action`/`frame-src` entries in `_headers`.
 
 ## DNS
 

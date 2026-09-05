@@ -42,19 +42,103 @@
         <section class="hero page-hero" id="top" aria-labelledby="feedback-page-title">
             <div class="container">
                 <div class="section-bar"><span>KR / FEEDBACK</span><span>HELP SHAPE THE NEXT BUILD</span></div>
-                <p class="system-tag">[ YOUR SIGNAL MATTERS / v1.0.1 ]</p>
+                <p class="system-tag">[ YOUR SIGNAL MATTERS / v1.1.0 ]</p>
                 <h1 id="feedback-page-title">TELL US<br><em>WHAT TO FIX.</em></h1>
                 <p>Tell us what is working, what is getting in the way, and which capability would make Kryonsec more useful for your security work.</p>
             </div>
         </section>
 
+        <section class="section mockup-section" aria-labelledby="pipeline-title">
+            <div class="container">
+                <div class="section-bar"><span>01 / SIGNAL PIPELINE</span><span>EVERY SIGNAL IS TRACKED</span></div>
+                <div class="section-intro-grid">
+                    <h2 id="pipeline-title">WATCH YOUR<br><em>SIGNAL MOVE.</em></h2>
+                    <p>Feedback is not a black box. Every submission gets logged, reviewed, and tied to an outcome.</p>
+                </div>
+                <div class="mockup-grid">
+                    <article class="mockup-card mockup-scope">
+                        <div class="mockup-head"><span>SIGNAL INBOX</span><span class="mockup-live"><i aria-hidden="true"></i> LIVE</span></div>
+                        <div class="mockup-body scope-list">
+                            <div><b>KR-FB-001</b><small>BUG REPORT / AUTH FLOW</small></div><span class="mockup-state">RECEIVED</span>
+                            <div><b>KR-FB-002</b><small>FEATURE SIGNAL / EXPORT</small></div><span class="mockup-state">RECEIVED</span>
+                        </div>
+                    </article>
+                    <article class="mockup-card mockup-activity">
+                        <div class="mockup-head"><span>TRIAGE QUEUE</span><span>AGENT REVIEW</span></div>
+                        <div class="mockup-body activity-list">
+                            <div><span class="activity-dot active"></span><b>reproduce</b><small>bug confirmed on scope</small></div>
+                            <div><span class="activity-dot active"></span><b>classify</b><small>severity and area assigned</small></div>
+                            <div><span class="activity-dot waiting"></span><b>route</b><small>queued for the roadmap</small></div>
+                        </div>
+                    </article>
+                    <article class="mockup-card mockup-finding">
+                        <div class="mockup-head"><span>OUTCOME / KR-FB-001</span><span class="severity medium">NEXT BUILD</span></div>
+                        <div class="mockup-body finding-body">
+                            <h3>Fix scheduled</h3>
+                            <p>Accepted signals land on the roadmap with a target build. You get the outcome, not silence.</p>
+                            <div class="finding-footer"><span>TRACKED</span><span>ROADMAP ↗</span></div>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" aria-labelledby="listening-title">
+            <div class="container">
+                <div class="section-bar"><span>02 / WHAT WE LISTEN FOR</span><span>ALL SIGNALS WELCOME</span></div>
+                <div class="section-intro-grid">
+                    <h2 id="listening-title">THREE KINDS<br><em>OF SIGNAL.</em></h2>
+                    <p>The more specific the signal, the faster it moves through the pipeline.</p>
+                </div>
+                <div class="problem-grid">
+                    <article class="problem-card">
+                        <span class="card-number">A</span>
+                        <h3>BUG REPORTS</h3>
+                        <p>Something broke, blocked, or lied. Include what you did and what you expected.</p>
+                        <span class="card-rule">REPRO STEPS BEAT SCREENSHOTS</span>
+                    </article>
+                    <article class="problem-card">
+                        <span class="card-number">B</span>
+                        <h3>WORKFLOW FRICTION</h3>
+                        <p>It works, but it fights you. Tell us where the tool gets in the way of the work.</p>
+                        <span class="card-rule">CONTEXT: WHEN AND WHERE</span>
+                    </article>
+                    <article class="problem-card">
+                        <span class="card-number">C</span>
+                        <h3>FEATURE SIGNALS</h3>
+                        <p>What capability would change how you use Kryonsec? Big or small, we want it.</p>
+                        <span class="card-rule">PROBLEM FIRST, NOT SOLUTION</span>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="section overview-section" aria-labelledby="after-title">
+            <div class="container">
+                <div class="section-bar"><span>03 / AFTER YOU SEND</span><span>NO SIGNAL DROPPED</span></div>
+                <div class="section-intro-grid">
+                    <h2 id="after-title">WHAT HAPPENS<br><em>NEXT.</em></h2>
+                    <p>Four steps between your submission and the next build.</p>
+                </div>
+                <div class="workflow">
+                    <div class="workflow-step"><span>STEP 01</span><b>RECEIVED</b><small>Logged with an ID and timestamp.</small></div>
+                    <i aria-hidden="true">→</i>
+                    <div class="workflow-step"><span>STEP 02</span><b>REVIEWED</b><small>Read by a human, same week.</small></div>
+                    <i aria-hidden="true">→</i>
+                    <div class="workflow-step"><span>STEP 03</span><b>TRIAGED</b><small>Classified against the roadmap.</small></div>
+                    <i aria-hidden="true">→</i>
+                    <div class="workflow-step"><span>STEP 04</span><b>SHIPPED</b><small>Lands in a build you can test.</small></div>
+                </div>
+            </div>
+        </section>
+
         <section class="section" aria-labelledby="feedback-form-title">
             <div class="container">
-                <div class="section-bar"><span>01 / FEEDBACK FORM</span><span>N8N WORKFLOW</span></div>
+                <div class="section-bar"><span>04 / FEEDBACK FORM</span><span>READ BY A HUMAN</span></div>
                 <div class="feedback-form-shell">
                     <h2 id="feedback-form-title">SEND A<br><em>SIGNAL.</em></h2>
                     <p class="form-note">Share the details that help us understand the request.</p>
-                    <form class="feedback-form" id="feedback-form" action="https://intervention-guards-examination-cartoons.trycloudflare.com/webhook/59875b67-3790-41c8-b76b-73c6753d4019" method="post" target="feedback-response-frame">
+                    <form class="feedback-form" id="feedback-form" action="https://n8n.kryonsec.in/webhook/kryon/feedback" method="post" target="feedback-response-frame">
                         <input type="hidden" name="source" value="kryonsec-feedback">
                         <input type="hidden" name="submitted_at" id="feedback-submitted-at">
                         <div class="form-field"><label for="feedback-name">FULL NAME *</label><input id="feedback-name" name="full_name" type="text" autocomplete="name" required></div>
@@ -72,7 +156,7 @@
 
     <footer class="site-footer">
         <div class="container footer-grid footer-grid-compact">
-            <div class="footer-brand"><a class="brand" href="index.html#top"><img class="brand-mark" src="assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a><p>AI-Assisted Purple Team<br>Early access / v1.0.1</p></div>
+            <div class="footer-brand"><a class="brand" href="index.html#top"><img class="brand-mark" src="assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a><p>AI-Assisted Purple Team<br>Early access / v1.1.0</p></div>
             <div><h3>PRODUCT</h3><a href="index.html#platform">Platform</a><a href="index.html#waitlist">Waitlist</a><a href="roadmap.html">Roadmap</a></div>
             <div><h3>CONTACT</h3><p>Questions about early access?</p><a href="mailto:joshnavardhan97@gmail.com">joshnavardhan97@gmail.com</a></div>
             <div><h3>FEEDBACK</h3><a href="feedback.html">Send feedback</a></div>
