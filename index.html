@@ -4,23 +4,23 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta id="theme-color" name="theme-color" content="#f5f5f0">
-    <meta name="description" content="Kryonsec is an AI-assisted purple team for modern applications. Join the waitlist for early access.">
+    <meta name="description" content="Kryonsec is an AI-assisted purple team for modern applications. Install it with one command.">
     <link rel="canonical" href="https://kryonsec.in/">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://kryonsec.in/">
-    <meta property="og:title" content="Kryonsec — Join the Waitlist">
+    <meta property="og:title" content="Kryonsec — AI-Assisted Purple Team">
     <meta property="og:description" content="Scoped, evidence-driven security work for modern applications.">
     <meta property="og:image" content="https://kryonsec.in/assets/octopus-reference.png">
     <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="Kryonsec — Join the Waitlist">
+    <meta name="twitter:title" content="Kryonsec — AI-Assisted Purple Team">
     <meta name="twitter:description" content="Scoped, evidence-driven security work for modern applications.">
     <meta name="twitter:image" content="https://kryonsec.in/assets/octopus-reference.png">
-    <title>Kryonsec — Join the Waitlist</title>
+    <title>Kryonsec — AI-Assisted Purple Team</title>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260903-mockup-polish-1">
+    <link rel="stylesheet" href="style.css?v=20260919-install-section-1">
     <script src="theme-init.js"></script>
 </head>
 <body>
@@ -34,7 +34,7 @@
             </a>
             <nav class="site-nav" id="primary-navigation" aria-label="Primary navigation">
                 <a href="#platform">PLATFORM</a>
-                <a href="#waitlist">WAITLIST</a>
+                <a href="#install">INSTALL</a>
                 <a href="feedback.html">FEEDBACK</a>
                 <a href="roadmap.html">ROADMAP</a>
             </nav>
@@ -51,7 +51,7 @@
                     <h1 id="hero-title">SECURITY<br>FOR THE<br>WAY YOU<br>BUILD.</h1>
                     <p class="hero-lede">Kryonsec helps teams find, verify, and understand risk across modern web applications — with evidence and a human in the loop.</p>
                     <div class="hero-actions">
-                        <button class="button button-primary waitlist-trigger" type="button">JOIN WAITLIST <span aria-hidden="true">›</span></button>
+                        <button class="button button-primary install-copy-trigger" type="button" data-copy-target="install-command">INSTALL KRYONSEC <span aria-hidden="true">›</span></button>
                         <a class="button button-secondary" href="#platform">SEE THE PLATFORM <span aria-hidden="true">›</span></a>
                     </div>
                 </div>
@@ -99,16 +99,22 @@
             </div>
         </section>
 
-        <section class="section waitlist-section" id="waitlist" aria-labelledby="waitlist-title">
+        <section class="section install-section" id="install" aria-labelledby="install-title">
             <div class="container">
-                <div class="waitlist-panel">
-                    <div class="section-bar"><span>02 / EARLY ACCESS</span><span>APPLICATIONS OPEN</span></div>
-                    <div class="waitlist-grid">
-                        <div><p class="system-tag">[ JOIN THE FIRST WAVE ]</p><h2 id="waitlist-title">GET IN<br><em>EARLY.</em></h2><button class="button button-primary waitlist-trigger" type="button">JOIN WAITLIST <span aria-hidden="true">›</span></button><p class="waitlist-copy">Tell us what you are building and what you want to protect. We will reach out as access opens.</p></div>
-                        <div class="waitlist-stats" aria-label="Waitlist status">
-                            <div><span>APPLIED</span><strong>00</strong></div>
-                            <div><span>APPROVED</span><strong>00</strong></div>
-                            <div><span>ACCESS</span><strong>OPEN</strong></div>
+                <div class="install-panel">
+                    <div class="section-bar"><span>02 / INSTALL</span><span>ONE COMMAND SETUP</span></div>
+                    <div class="install-grid">
+                        <div>
+                            <p class="system-tag">[ INSTALL IN SECONDS ]</p>
+                            <h2 id="install-title">INSTALL<br><em>KRYONSEC.</em></h2>
+                            <div class="install-command"><code id="install-command">curl -fsSL https://raw.githubusercontent.com/GonchiJoshnaVardhanReddy/kryonsec/main/install.sh | bash</code></div>
+                            <div class="install-actions"><button class="button button-primary install-copy-trigger" type="button" data-copy-target="install-command">COPY COMMAND <span aria-hidden="true">›</span></button><a class="button button-secondary" href="https://github.com/GonchiJoshnaVardhanReddy/kryonsec" target="_blank" rel="noopener">GITHUB <span aria-hidden="true">↗</span></a><p class="install-copy" id="install-copy-status" aria-live="polite">Paste it into your terminal. That is the whole setup.</p></div>
+                        </div>
+                        <div class="install-video">
+                            <div class="video-frame">
+                                <iframe src="https://www.youtube.com/embed/zNEJTBBoiYM" title="Kryonsec install walkthrough" loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                            </div>
+                            <p class="art-note">Watch the walkthrough.</p>
                         </div>
                     </div>
                 </div>
@@ -116,28 +122,10 @@
         </section>
     </main>
 
-    <dialog class="waitlist-dialog" id="waitlist-dialog" aria-labelledby="waitlist-dialog-title">
-            <div class="waitlist-dialog-inner">
-            <div class="dialog-head"><div><p class="system-tag">[ EARLY ACCESS ]</p><h2 id="waitlist-dialog-title">JOIN THE<br><em>WAITLIST.</em></h2></div><button class="dialog-close" id="waitlist-close" type="button" aria-label="Close waitlist form">×</button></div>
-            <p class="form-note">Share a few details so we can understand what you are building.</p>
-            <form class="waitlist-form" id="waitlist-form" action="https://n8n.kryonsec.in/webhook/kryon/waitlist" method="post" target="waitlist-response-frame">
-                <input type="hidden" name="source" value="kryonsec-waitlist">
-                <input type="hidden" name="submitted_at" id="waitlist-submitted-at">
-                <div class="form-field"><label for="waitlist-name">FULL NAME *</label><input id="waitlist-name" name="full_name" type="text" autocomplete="name" required></div>
-                <div class="form-field"><label for="waitlist-phone">NUMBER</label><input id="waitlist-phone" name="phone_number" type="tel" autocomplete="tel" inputmode="tel"></div>
-                <div class="form-field form-field-full"><label for="waitlist-email">MAIL *</label><input id="waitlist-email" name="email" type="email" autocomplete="email" required></div>
-                <div class="form-field form-field-full"><label for="waitlist-doing">WHAT ARE YOU DOING? *</label><textarea id="waitlist-doing" name="what_you_do" required></textarea></div>
-                <div class="form-field form-field-full"><label for="waitlist-why">WHY DO YOU WANT TO USE KRYONSEC? *</label><textarea id="waitlist-why" name="why_kryonsec" required></textarea></div>
-                <div class="form-actions"><button class="button button-primary" type="submit">APPLY FOR ACCESS <span aria-hidden="true">↗</span></button><p class="form-static-note" id="waitlist-submit-status" aria-live="polite"></p></div>
-            </form>
-            <iframe class="waitlist-response-frame" id="waitlist-response-frame" name="waitlist-response-frame" title="Waitlist submission response" aria-hidden="true"></iframe>
-        </div>
-    </dialog>
-
     <footer class="site-footer">
         <div class="container footer-grid footer-grid-compact">
             <div class="footer-brand"><a class="brand" href="#top"><img class="brand-mark" src="assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a><p>AI-Assisted Purple Team<br>Early access / v1.1.0</p></div>
-            <div><h3>PRODUCT</h3><a href="#platform">Platform</a><a href="#waitlist">Waitlist</a><a href="roadmap.html">Roadmap</a></div>
+            <div><h3>PRODUCT</h3><a href="#platform">Platform</a><a href="#install">Install</a><a href="roadmap.html">Roadmap</a><a href="https://github.com/GonchiJoshnaVardhanReddy/kryonsec" target="_blank" rel="noopener">GitHub</a></div>
             <div><h3>CONTACT</h3><p>Questions about early access?</p><a href="mailto:joshnavardhan97@gmail.com">joshnavardhan97@gmail.com</a></div>
             <div><h3>FEEDBACK</h3><a href="feedback.html">Send feedback</a></div>
         </div>

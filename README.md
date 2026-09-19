@@ -24,7 +24,9 @@ Recommended free host: Cloudflare Pages.
 
 The production output is this entire directory. `_headers`, `robots.txt`, `sitemap.xml`, `index.html`, `feedback.html`, `roadmap.html`, `style.css`, `script.js`, `theme-init.js`, and `assets/` must be deployed together.
 
-The homepage waitlist form posts to the production webhook `https://n8n.kryonsec.in/webhook/kryon/waitlist`, and the feedback form posts to `https://n8n.kryonsec.in/webhook/kryon/feedback`. Both are plain HTML form POSTs into a hidden iframe, so no CORS configuration is needed. If the webhook paths ever change, update the `action` attribute of `#waitlist-form` in `index.html` and `#feedback-form` in `feedback.html`, plus the matching CSP `form-action`/`frame-src` entries in `_headers`.
+The feedback form posts to the production webhook `https://n8n.kryonsec.in/webhook/kryon/feedback` as a plain HTML form POST into a hidden iframe, so no CORS configuration is needed. If the webhook path ever changes, update the `action` attribute of `#feedback-form` in `feedback.html`, plus the matching CSP `form-action`/`frame-src` entries in `_headers`.
+
+The homepage install section embeds the walkthrough video from `https://www.youtube.com/embed/zNEJTBBoiYM`, so `_headers` allows `https://www.youtube.com` in `frame-src`. Changing the video ID means updating the iframe `src` in `index.html`; embedding a different host also means updating that CSP entry.
 
 ## DNS
 
@@ -36,7 +38,7 @@ Keep the n8n service separate and unchanged:
 n8n.kryonsec.in  →  your existing n8n Cloudflare Tunnel configuration
 ```
 
-Do not point `n8n.kryonsec.in` at Cloudflare Pages, and do not change the tunnel configuration. The waitlist form posts directly to the configured webhook, so it does not require frontend CORS configuration.
+Do not point `n8n.kryonsec.in` at Cloudflare Pages, and do not change the tunnel configuration. The feedback form posts directly to the configured webhook, so it does not require frontend CORS configuration.
 
 The existing `CNAME` file contains `kryonsec.in`. Cloudflare Pages does not require it, but leaving it in place is harmless.
 

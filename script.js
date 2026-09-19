@@ -38,53 +38,43 @@
     });
     siteNav?.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeMobileMenu));
 
-    const waitlistDialog = document.querySelector('#waitlist-dialog');
-    const waitlistTriggers = document.querySelectorAll('.waitlist-trigger');
-    const waitlistClose = document.querySelector('#waitlist-close');
-    const waitlistForm = document.querySelector('#waitlist-form');
-    const waitlistStatus = document.querySelector('#waitlist-submit-status');
-    const waitlistSubmit = waitlistForm?.querySelector('button[type="submit"]');
-    const waitlistFrame = document.querySelector('#waitlist-response-frame');
-    const waitlistSubmittedAt = document.querySelector('#waitlist-submitted-at');
-    let waitlistPending = false;
-    let waitlistTimeout;
-    const restoreWaitlistSubmit = () => {
-        if (waitlistSubmit) {
-            waitlistSubmit.disabled = false;
-            waitlistSubmit.innerHTML = 'APPLY FOR ACCESS <span aria-hidden="true">↗</span>';
+    const installCopyTriggers = document.querySelectorAll('.install-copy-trigger');
+    const installCopyStatus = document.querySelector('#install-copy-status');
+    const copyText = async (text) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (_) {
+            const field = document.createElement('textarea');
+            field.value = text;
+            field.setAttribute('readonly', '');
+            field.style.position = 'fixed';
+            field.style.opacity = '0';
+            document.body.appendChild(field);
+            field.select();
+            let copied = false;
+            try { copied = document.execCommand('copy'); } catch (_) {}
+            document.body.removeChild(field);
+            return copied;
         }
     };
-    waitlistTriggers.forEach((trigger) => trigger.addEventListener('click', () => {
-        if (typeof waitlistDialog?.showModal === 'function') waitlistDialog.showModal();
-        else waitlistDialog?.setAttribute('open', '');
-        waitlistDialog?.querySelector('input')?.focus();
-    }));
-    waitlistClose?.addEventListener('click', () => waitlistDialog?.close?.());
-    waitlistDialog?.addEventListener('click', (event) => {
-        if (event.target === waitlistDialog) waitlistDialog.close?.();
-    });
-    waitlistFrame?.addEventListener('load', () => {
-        if (!waitlistPending) return;
-        waitlistPending = false;
-        window.clearTimeout(waitlistTimeout);
-        waitlistForm?.reset();
-        if (waitlistStatus) waitlistStatus.textContent = 'APPLICATION SENT — WE WILL BE IN TOUCH.';
-        restoreWaitlistSubmit();
-    });
-    waitlistForm?.addEventListener('submit', () => {
-        waitlistPending = true;
-        if (waitlistSubmittedAt) waitlistSubmittedAt.value = new Date().toISOString();
-        if (waitlistSubmit) {
-            waitlistSubmit.disabled = true;
-            waitlistSubmit.textContent = 'SENDING...';
-        }
-        if (waitlistStatus) waitlistStatus.textContent = 'SENDING APPLICATION...';
-        waitlistTimeout = window.setTimeout(() => {
-            if (!waitlistPending) return;
-            waitlistPending = false;
-            if (waitlistStatus) waitlistStatus.textContent = 'NO RESPONSE OBSERVED — TRY AGAIN LATER.';
-            restoreWaitlistSubmit();
-        }, 15000);
+    installCopyTriggers.forEach((trigger) => {
+        const label = trigger.innerHTML;
+        let resetTimer;
+        trigger.addEventListener('click', async () => {
+            const target = document.querySelector(`#${trigger.dataset.copyTarget}`);
+            if (!target) return;
+            const copied = await copyText(target.textContent.trim());
+            window.clearTimeout(resetTimer);
+            trigger.innerHTML = copied ? 'COPIED ✓' : 'COPY FAILED';
+            if (installCopyStatus) installCopyStatus.textContent = copied
+                ? 'Command copied — paste it into your terminal.'
+                : 'Copy blocked by the browser — select the command and copy it manually.';
+            resetTimer = window.setTimeout(() => {
+                trigger.innerHTML = label;
+                if (installCopyStatus) installCopyStatus.textContent = 'Paste it into your terminal. That is the whole setup.';
+            }, 2400);
+        });
     });
 
     const feedbackForm = document.querySelector('#feedback-form');
