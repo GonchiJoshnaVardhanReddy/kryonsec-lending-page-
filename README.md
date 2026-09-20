@@ -26,7 +26,7 @@ The production output is this entire directory. `_headers`, `robots.txt`, `sitem
 
 The feedback form posts to the production webhook `https://n8n.kryonsec.in/webhook/kryon/feedback` as a plain HTML form POST into a hidden iframe, so no CORS configuration is needed. If the webhook path ever changes, update the `action` attribute of `#feedback-form` in `feedback.html`, plus the matching CSP `form-action`/`frame-src` entries in `_headers`.
 
-The homepage install section embeds the walkthrough video from `https://www.youtube.com/embed/zNEJTBBoiYM`, so `_headers` allows `https://www.youtube.com` in `frame-src`. Changing the video ID means updating the iframe `src` in `index.html`; embedding a different host also means updating that CSP entry.
+The homepage install section embeds the walkthrough video from `https://www.youtube.com/embed/ZnH-U8DG3Y0`, so `_headers` allows `https://www.youtube.com` in `frame-src`. Changing the video ID means updating the iframe `src` in `index.html`; embedding a different host also means updating that CSP entry.
 
 ## DNS
 
