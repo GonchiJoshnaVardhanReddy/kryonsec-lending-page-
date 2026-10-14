@@ -15,9 +15,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { onRequestPost as start } from "../functions/api/device/start.js";
 import { onRequestPost as poll } from "../functions/api/device/poll.js";
+import { onRequestPost as claim } from "../functions/api/device/claim.js";
 import { onRequestGet as connect } from "../functions/connect.js";
 import { onRequestPost as admin } from "../functions/admin.js";
 import {
@@ -45,6 +49,88 @@ function post(url, body, env) {
     body: JSON.stringify(body),
   });
 }
+
+// ---- every function file must bundle ---------------------------------------
+
+test("every file under functions/ resolves all of its imports", async () => {
+  // The deploy fails, not the code, when a relative import is off by one
+  // level — `../_shared.js` from functions/api/device/ points at a file that
+  // does not exist. esbuild only complains at build time, so importing each
+  // file here is what makes that a fast local failure instead of a red
+  // deployment.
+  const root = fileURLToPath(new URL("../functions", import.meta.url));
+  const files = [];
+  (function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".js")) files.push(full);
+    }
+  })(root);
+
+  assert.ok(files.length >= 8, `expected the function tree, found ${files.length}`);
+  for (const file of files) {
+    await assert.doesNotReject(
+      () => import(new URL(`file://${file.replace(/\\/g, "/")}`).href),
+      `${file} must resolve its imports`,
+    );
+  }
+});
+
+// ---- /api/device/claim -----------------------------------------------------
+
+function formPost(url, fields, env) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.set(k, v);
+  return claim({
+    request: new Request(url, { method: "POST", body: form }),
+    env,
+  });
+}
+
+test("a claim with no database redirects back, and does not pretend to work", async () => {
+  const response = await formPost(
+    "https://kryonsec.in/api/device/claim",
+    { code: "AB2C-DE3F", email: "member@example.com" },
+    {},
+  );
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get("Location"), /\/connect\?.*e=notconf/);
+});
+
+test("a bad code or email is refused before the database is touched", async () => {
+  const cases = [
+    [{ code: "AB10-CD34", email: "member@example.com" }, "e=code"], // 0/1 not in the alphabet
+    [{ code: "", email: "member@example.com" }, "e=code"],
+    [{ code: "AB2C-DE3F", email: "not-an-email" }, "e=email"],
+    [{ code: "AB2C-DE3F", email: "" }, "e=email"],
+  ];
+  for (const [fields, expected] of cases) {
+    const response = await formPost(
+      "https://kryonsec.in/api/device/claim", fields, { KRYONSEC_DB: UNTOUCHABLE },
+    );
+    const location = response.headers.get("Location");
+    assert.equal(response.status, 303, JSON.stringify(fields));
+    assert.match(location, new RegExp(expected), `${JSON.stringify(fields)} -> ${location}`);
+  }
+});
+
+test("the refusal redirect is 303, so a refresh cannot repost", async () => {
+  const response = await formPost(
+    "https://kryonsec.in/api/device/claim", { code: "nope", email: "a@b.com" }, {},
+  );
+  assert.equal(response.status, 303, "302 would make a refresh POST again");
+});
+
+test("the redirect stays on the origin the request arrived on", async () => {
+  const response = await formPost(
+    "https://kryonsec.in/api/device/claim", { code: "nope", email: "a@b.com" }, {},
+  );
+  assert.ok(
+    response.headers.get("Location").startsWith("https://kryonsec.in/connect?"),
+    "a redirect must not be pointed at another host",
+  );
+});
 
 // ---- /api/device/start -----------------------------------------------------
 

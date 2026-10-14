@@ -25,7 +25,7 @@ import {
   isoAgo,
   nowIso,
   page,
-} from "../_shared.js";
+} from "../../_shared.js";
 
 function back(origin, code, reason) {
   const params = new URLSearchParams();
