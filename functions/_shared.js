@@ -106,7 +106,6 @@ export function esc(value) {
 
 /** Codes and sessions both stop working after this long. */
 export const CODE_TTL_MIN = 15;
-export const MAX_DEVICES_WARN = 3;
 
 /**
  * Does this admin token match? Empty/unset config denies everyone — an unset
