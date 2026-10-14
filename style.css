@@ -234,7 +234,6 @@ h2 em { color: var(--accent); font-style: normal; }
 .feedback-form { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 1.25rem; }
 .feedback-form .form-field-full, .feedback-form .form-actions { grid-column: 1 / -1; }
 .feedback-form-actions .button { cursor: pointer; }
-.feedback-response-frame { position: absolute; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
 .roadmap-intro { margin-bottom: 2rem; }
 .roadmap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 .roadmap-card { min-height: 210px; padding: 1.15rem; border: 2px solid var(--fg); background: var(--paper); transition: background-color .25s ease, border-color .25s ease, transform .2s ease; }

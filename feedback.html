@@ -29,7 +29,7 @@
             <a class="brand" href="index.html#top" aria-label="Kryonsec home"><img class="brand-mark" src="assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a>
             <nav class="site-nav" id="primary-navigation" aria-label="Primary navigation">
                 <a href="index.html#platform">PLATFORM</a>
-                <a href="index.html#install">INSTALL</a>
+                <a href="index.html#access">EARLY ACCESS</a>
                 <a href="feedback.html" aria-current="page">FEEDBACK</a>
                 <a href="roadmap.html">ROADMAP</a>
             </nav>
@@ -138,7 +138,7 @@
                 <div class="feedback-form-shell">
                     <h2 id="feedback-form-title">SEND A<br><em>SIGNAL.</em></h2>
                     <p class="form-note">Share the details that help us understand the request.</p>
-                    <form class="feedback-form" id="feedback-form" action="https://n8n.kryonsec.in/webhook/kryon/feedback" method="post" target="feedback-response-frame">
+                    <form class="feedback-form" id="feedback-form" action="/api/feedback" method="post">
                         <input type="hidden" name="source" value="kryonsec-feedback">
                         <input type="hidden" name="submitted_at" id="feedback-submitted-at">
                         <div class="form-field"><label for="feedback-name">FULL NAME *</label><input id="feedback-name" name="full_name" type="text" autocomplete="name" required></div>
@@ -148,7 +148,6 @@
                         <div class="form-field form-field-full"><label for="feedback-feature">WHAT FEATURE SHOULD BE ADDED?</label><textarea id="feedback-feature" name="feature_request"></textarea></div>
                         <div class="form-actions"><button class="button button-primary" type="submit">SEND FEEDBACK <span aria-hidden="true">↗</span></button><p class="form-static-note" id="feedback-submit-status" aria-live="polite"></p></div>
                     </form>
-                    <iframe class="feedback-response-frame" id="feedback-response-frame" name="feedback-response-frame" title="Feedback submission response" aria-hidden="true"></iframe>
                 </div>
             </div>
         </section>
@@ -157,11 +156,11 @@
     <footer class="site-footer">
         <div class="container footer-grid footer-grid-compact">
             <div class="footer-brand"><a class="brand" href="index.html#top"><img class="brand-mark" src="assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a><p>AI-Assisted Purple Team<br>Early access / v1.1.0</p></div>
-            <div><h3>PRODUCT</h3><a href="index.html#platform">Platform</a><a href="index.html#install">Install</a><a href="roadmap.html">Roadmap</a><a href="https://github.com/GonchiJoshnaVardhanReddy/kryon-sec" target="_blank" rel="noopener">GitHub</a></div>
+            <div><h3>PRODUCT</h3><a href="index.html#platform">Platform</a><a href="index.html#access">Early access</a><a href="roadmap.html">Roadmap</a></div>
             <div><h3>CONTACT</h3><p>Questions about early access?</p><a href="mailto:joshnavardhan97@gmail.com">joshnavardhan97@gmail.com</a></div>
             <div><h3>FEEDBACK</h3><a href="feedback.html">Send feedback</a></div>
         </div>
-        <div class="container footer-bottom"><span>kryonsec.in</span><span>Scoped work. Clear evidence.</span><a href="#top">BACK TO TOP ↑</a></div>
+        <div class="container footer-bottom"><span>kryonsec.in · © 2026 Kryonsec. All rights reserved.</span><span>Scoped work. Clear evidence.</span><a href="#top">BACK TO TOP ↑</a></div>
     </footer>
     <script src="script.js"></script>
 </body>

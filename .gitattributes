@@ -1,0 +1,8 @@
+# Keep this file stable too, so it does not churn under core.autocrlf.
+.gitattributes text eol=lf
+
+# Shell installers run on Linux and macOS, where a CR before the newline turns
+# the shebang into an unrecognised command ("bash\r: not found") and the
+# install fails on line 1. Cloudflare serves this copy verbatim, so force LF in
+# the repository and in the working tree regardless of core.autocrlf.
+*.sh text eol=lf

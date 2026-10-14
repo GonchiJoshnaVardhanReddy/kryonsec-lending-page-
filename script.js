@@ -38,67 +38,20 @@
     });
     siteNav?.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeMobileMenu));
 
-    const installCopyTriggers = document.querySelectorAll('.install-copy-trigger');
-    const installCopyStatus = document.querySelector('#install-copy-status');
-    const copyText = async (text) => {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (_) {
-            const field = document.createElement('textarea');
-            field.value = text;
-            field.setAttribute('readonly', '');
-            field.style.position = 'fixed';
-            field.style.opacity = '0';
-            document.body.appendChild(field);
-            field.select();
-            let copied = false;
-            try { copied = document.execCommand('copy'); } catch (_) {}
-            document.body.removeChild(field);
-            return copied;
-        }
-    };
-    installCopyTriggers.forEach((trigger) => {
-        const label = trigger.innerHTML;
-        let resetTimer;
-        trigger.addEventListener('click', async () => {
-            const target = document.querySelector(`#${trigger.dataset.copyTarget}`);
-            if (!target) return;
-            const copied = await copyText(target.textContent.trim());
-            window.clearTimeout(resetTimer);
-            trigger.innerHTML = copied ? 'COPIED ✓' : 'COPY FAILED';
-            if (installCopyStatus) installCopyStatus.textContent = copied
-                ? 'Command copied — paste it into your terminal.'
-                : 'Copy blocked by the browser — select the command and copy it manually.';
-            resetTimer = window.setTimeout(() => {
-                trigger.innerHTML = label;
-                if (installCopyStatus) installCopyStatus.textContent = 'Paste it into your terminal. That is the whole setup.';
-            }, 2400);
-        });
-    });
-
     const feedbackForm = document.querySelector('#feedback-form');
     const feedbackStatus = document.querySelector('#feedback-submit-status');
     const feedbackSubmit = feedbackForm?.querySelector('button[type="submit"]');
-    const feedbackFrame = document.querySelector('#feedback-response-frame');
     const feedbackSubmittedAt = document.querySelector('#feedback-submitted-at');
     let feedbackPending = false;
-    let feedbackTimeout;
     const restoreFeedbackSubmit = () => {
         if (feedbackSubmit) {
             feedbackSubmit.disabled = false;
             feedbackSubmit.innerHTML = 'SEND FEEDBACK <span aria-hidden="true">↗</span>';
         }
     };
-    feedbackFrame?.addEventListener('load', () => {
-        if (!feedbackPending) return;
-        feedbackPending = false;
-        window.clearTimeout(feedbackTimeout);
-        feedbackForm?.reset();
-        if (feedbackStatus) feedbackStatus.textContent = 'FEEDBACK SENT — THANK YOU.';
-        restoreFeedbackSubmit();
-    });
-    feedbackForm?.addEventListener('submit', () => {
+    feedbackForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (feedbackPending) return;
         feedbackPending = true;
         if (feedbackSubmittedAt) feedbackSubmittedAt.value = new Date().toISOString();
         if (feedbackSubmit) {
@@ -106,12 +59,23 @@
             feedbackSubmit.textContent = 'SENDING...';
         }
         if (feedbackStatus) feedbackStatus.textContent = 'SENDING FEEDBACK...';
-        feedbackTimeout = window.setTimeout(() => {
-            if (!feedbackPending) return;
+        try {
+            // Same origin, so no CORS and no hidden iframe. The old iframe said
+            // "sent" on any load, including an error page; reading the real
+            // status is what makes a dropped submission visible.
+            const response = await fetch(feedbackForm.action, {
+                method: 'POST',
+                body: new FormData(feedbackForm),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            feedbackForm.reset();
+            if (feedbackStatus) feedbackStatus.textContent = 'FEEDBACK SENT — THANK YOU.';
+        } catch {
+            if (feedbackStatus) feedbackStatus.textContent = 'COULD NOT SEND — TRY AGAIN LATER.';
+        } finally {
             feedbackPending = false;
-            if (feedbackStatus) feedbackStatus.textContent = 'NO RESPONSE OBSERVED — TRY AGAIN LATER.';
             restoreFeedbackSubmit();
-        }, 15000);
+        }
     });
 
     document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
