@@ -1,3 +1,7 @@
 User-agent: *
 Allow: /
+# Personal, one-time, and one-per-machine: nothing here is ever useful to a
+# crawler, and a connect URL is a member's own.
+Disallow: /admin
+Disallow: /connect
 Sitemap: https://kryonsec.in/sitemap.xml

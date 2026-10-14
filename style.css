@@ -334,3 +334,12 @@ body, body *, button, input, textarea, select { font-family: var(--pixel) !impor
 @media (max-width: 768px) {
     .agent-callout small { font-size: .36rem; line-height: 1.4; }
 }
+
+/* The admin dashboard (/admin). Classes, not style attributes: the site's CSP
+   is style-src 'self', which blocks inline styles outright. */
+.admin-table-wrap { overflow-x: auto; margin: 1rem 0 2rem; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .7rem; }
+.admin-table th, .admin-table td { padding: .6rem .7rem; border: 2px solid var(--fg); text-align: left; vertical-align: top; white-space: nowrap; }
+.admin-table th { background: var(--fg); color: var(--bg); font-size: .5rem; }
+.admin-table tbody tr:nth-child(even) { background: var(--paper); }
+
