@@ -44,6 +44,7 @@ The existing `CNAME` file contains `kryonsec.in`. Cloudflare Pages does not requ
 - `style.css`, `script.js`, `theme-init.js` — shared presentation and behavior
 - `assets/` — brand and favicon assets
 - `functions/api/download.js` — the key-gated wheel download at `/api/download`
+- `functions/api/license/verify.js` — the key check the app phones home to, at `/api/license/verify`
 - `functions/api/feedback.js` — the feedback sink at `/api/feedback`
 - `install.sh`, `install.ps1` — the member installer, served at `/install.sh` and `/install.ps1`
 - `tests/` — endpoint checks (`node --test "tests/*.test.mjs"`)
@@ -69,6 +70,31 @@ private repo's `RELEASING.md`.
 **`install.sh` and `install.ps1` are copies.** The canonical versions live in
 the private kryonsec repo and Cloudflare serves these. A change to the
 installer does nothing until it is copied here.
+
+## The license endpoint
+
+`functions/api/license/verify.js` is where the app asks whether a key is still
+good. The app is hardcoded to `https://kryonsec.in/api/license/verify`, calls it
+at most once a day per machine, and **cannot activate at all without it** — a
+machine that never reaches this endpoint never gets past the Purple Team gate.
+
+It reads the same `KRYONSEC_KEYS` as the download gate, so there is nothing
+extra to configure, and adding or removing a member is still one setting.
+
+**It answers `200` even when it refuses** — the response body carries the
+verdict:
+
+```json
+{"valid": true}
+{"valid": false, "reason": "not recognised"}
+```
+
+This is deliberately the opposite of the download endpoint. The app treats any
+non-200 from here as *"the network is down"* and falls back to a multi-day grace
+period based on the last successful check. Serving a refusal as `403` would
+therefore mean a key deleted from `KRYONSEC_KEYS` keeps working for that whole
+grace period. The `200` is what makes revocation actually stick, and
+`tests/verify.test.mjs` asserts it on every rejection path.
 
 ## The feedback endpoint
 
