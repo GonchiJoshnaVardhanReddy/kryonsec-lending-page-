@@ -61,7 +61,7 @@ in the Pages project:
 | Variable | Value |
 | --- | --- |
 | `KRYONSEC_KEYS` | Allowed membership keys, comma-separated |
-| `KRYONSEC_GITHUB_TOKEN` | Fine-grained GitHub token, `Contents: Read-only` on the kryonsec repo |
+| `KRYONSEC_GITHUB_TOKEN` | Fine-grained GitHub token, `Contents: Read-only` on the private `kryon-sec` repo |
 
 Environment variables only apply to a new deployment, so redeploy after
 changing them. The full setup, and how a release reaches members, is in the
