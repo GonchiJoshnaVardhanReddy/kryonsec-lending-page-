@@ -11,6 +11,7 @@ and the sign-in `kryonsec login` uses. Two documents cover it:
 - **[SECURITY-NOTES.md](SECURITY-NOTES.md)** — the credential model, and an
   explicit list of what is *not* enforced. Read this before promising anyone
   that access can be taken away.
+- **[API.md](API.md)** — every route, what authorises it, and what it answers.
 
 Nothing about the membership-key path changed. Existing keys and published
 install scripts keep working.
