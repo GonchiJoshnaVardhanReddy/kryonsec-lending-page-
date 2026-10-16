@@ -122,7 +122,7 @@ export function isAdmin(token, configured) {
 // --- the page shell ---------------------------------------------------------
 
 /** The site's own chrome, so these pages do not look like a different site. */
-export function page(title, body) {
+export function page(title, body, status = 200) {
   return html(`<!doctype html>
 <html lang="en">
 <head>
@@ -154,5 +154,5 @@ ${body}
 </section>
 </main>
 </body>
-</html>`);
+</html>`, status);
 }
