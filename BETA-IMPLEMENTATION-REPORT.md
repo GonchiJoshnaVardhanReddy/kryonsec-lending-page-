@@ -10,11 +10,11 @@ been touched.
 | | landing (`kryonsec-landing`) | CLI (`kryonsec`) |
 |---|---|---|
 | branch | `feat/beta-onboarding` | `feat/beta-login` |
-| head | `b15b5ac` | `2f8171c` |
-| commits | 8 | 2 |
-| diff vs. base | 50 files, +8771 / −50 | 4 files, +919 / −35 |
+| head | `ff644bd` | `2f8171c` |
+| commits | 9 | 2 |
+| diff vs. base | 51 files, +9115 / −50 | 4 files, +919 / −35 |
 
-The landing branch, oldest first — the last three are from this session:
+The landing branch, oldest first — the last four are from this session:
 
 ```
 24459ea  identity, entitlement, and the access gate
@@ -25,6 +25,7 @@ cf02d61  the way in — sign-in, apply, and sign-out
 2914fdb  sign a machine out, from either end          <- this session
 39added  how to deploy it, and what it does not protect against
 b15b5ac  the API contract, in one table
+ff644bd  the implementation report
 ```
 
 ---
