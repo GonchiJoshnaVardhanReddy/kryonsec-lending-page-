@@ -32,6 +32,26 @@ export function html(markup, status = 200) {
   });
 }
 
+/**
+ * Send the browser somewhere else.
+ *
+ * 303, not 302: a redirect that follows a POST has to turn the follow-up into
+ * a GET, or a refresh re-submits the form. Every redirect on this site is
+ * either a GET in the first place or a form submission, and 303 is correct for
+ * both.
+ *
+ * `Location` is only ever given a value this code built or a path that has
+ * been through `safeNext()` — a redirect assembled from a query parameter is
+ * an open redirect, which is how a link on our own domain ends up on someone
+ * else's page.
+ */
+export function redirect(location, status = 303) {
+  return new Response(null, {
+    status,
+    headers: { Location: location, "Cache-Control": "no-store" },
+  });
+}
+
 // --- randomness -------------------------------------------------------------
 
 // Crockford base32 minus 0/O and 1/I — the alphabet the membership keys use,
@@ -121,8 +141,15 @@ export function isAdmin(token, configured) {
 
 // --- the page shell ---------------------------------------------------------
 
-/** The site's own chrome, so these pages do not look like a different site. */
-export function page(title, body, status = 200) {
+/**
+ * The site's own chrome, so these pages do not look like a different site.
+ *
+ * `nav` renders inside the header's flex row, to the right of the brand — the
+ * account links on the beta pages. `shellClass` widens the content column for
+ * pages that are tables rather than a form. Both default to the original
+ * behaviour, so the pages written before either existed are unchanged.
+ */
+export function page(title, body, status = 200, { nav = "", shellClass = "" } = {}) {
   return html(`<!doctype html>
 <html lang="en">
 <head>
@@ -142,12 +169,13 @@ export function page(title, body, status = 200) {
 <header class="site-header">
     <div class="container header-inner">
         <a class="brand" href="/" aria-label="Kryonsec home"><img class="brand-mark" src="/assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a>
+        ${nav}
     </div>
 </header>
 <main id="main-content">
 <section class="section">
     <div class="container">
-        <div class="feedback-form-shell">
+        <div class="feedback-form-shell${shellClass ? ` ${shellClass}` : ""}">
 ${body}
         </div>
     </div>

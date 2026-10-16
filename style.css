@@ -343,3 +343,75 @@ body, body *, button, input, textarea, select { font-family: var(--pixel) !impor
 .admin-table th { background: var(--fg); color: var(--bg); font-size: .5rem; }
 .admin-table tbody tr:nth-child(even) { background: var(--paper); }
 
+/* The beta pages: /signin, /apply, /dashboard and the review queue. Same
+   rules as the block above — classes only, because the CSP forbids inline
+   styles, and no border-radius anywhere, because nothing else on this site
+   has one. */
+
+/* Wider than a form, for pages that are tables. */
+.feedback-form-shell.is-wide { max-width: 1040px; }
+
+/* The account links. Kept visible at mobile widths where .site-nav is not:
+   that rule exists so the landing page can collapse into the MENU toggle,
+   which is driven by script.js and is not loaded here. A signed-in page with
+   no way back to the dashboard is worse than a wrapped header. */
+.site-nav.account-nav { flex-wrap: wrap; }
+.nav-form { display: inline-flex; margin: 0; }
+.nav-button { padding: .75rem .65rem; border: 0; background: transparent; color: inherit; cursor: pointer; font: .57rem var(--pixel); }
+.nav-button:hover, .nav-button:focus-visible { color: var(--accent); outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* Application and entitlement state. The dot carries the meaning at a glance;
+   the word carries it for anyone who cannot rely on the colour. */
+.status-pill { display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 2px solid var(--fg); font: .46rem var(--pixel); white-space: nowrap; }
+.status-pill::before { width: 8px; height: 8px; background: var(--low); content: ''; }
+.status-pill.is-ok::before { background: var(--accent); }
+.status-pill.is-pending::before { background: var(--medium); }
+.status-pill.is-warn::before { background: var(--high); }
+.status-pill.is-bad::before { background: var(--critical); }
+
+/* Read-only facts, in the shape of the landing page's .status-grid but free
+   to reflow — these pages have three items in one panel and seven in another. */
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); border: 2px solid var(--fg); background: var(--paper); }
+.detail-grid > div { min-height: 76px; padding: .75rem 1rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.detail-grid span { display: block; margin-bottom: .5rem; color: var(--muted); font: .43rem var(--pixel); }
+.detail-grid strong { font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
+.detail-grid strong a { color: var(--accent); }
+
+/* Banners. The tone is the border and the text colour; the words are the
+   message, and none of these rely on colour alone to be understood. */
+.form-static-note.is-bad, .form-static-note.is-warn, .form-static-note.is-ok { padding: .75rem 1rem; border-left: 6px solid var(--muted); }
+.form-static-note.is-bad { border-left-color: var(--critical); color: var(--critical); }
+.form-static-note.is-warn { border-left-color: var(--high); color: var(--high); }
+.form-static-note.is-ok { border-left-color: var(--accent); }
+
+/* Controls the original form styles did not cover. */
+.form-field select { width: 100%; padding: .75rem; border: 2px solid var(--border); border-radius: 0; background: var(--bg); color: var(--fg); font: 1.25rem var(--body); }
+.form-field select:focus { border-color: var(--accent); outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 2px; }
+.check-field { gap: .5rem; }
+.check-label { display: flex; align-items: flex-start; gap: .7rem; cursor: pointer; }
+.check-label input { width: auto; margin: .2rem 0 0; accent-color: var(--accent); }
+.check-label span { color: var(--body-copy); font-size: .78rem; line-height: 1.6; }
+
+/* A button that fits inside a table cell. */
+.button-small { padding: .5rem .7rem; font-size: .42rem; }
+
+/* Admin review: one block per application, so the decision controls sit next
+   to the answers they are about rather than in a separate table. */
+.review-card { margin-bottom: 1rem; border: 2px solid var(--fg); background: var(--paper); }
+.review-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .75rem 1rem; border-bottom: 2px solid var(--fg); font: .52rem var(--pixel); }
+.review-body { padding: 1rem; }
+.review-body dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .9rem 1.5rem; margin: 0 0 1rem; }
+.review-body dt { color: var(--muted); font: .43rem var(--pixel); }
+.review-body dd { margin: .45rem 0 0; color: var(--body-copy); font-size: .78rem; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.review-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; padding-top: 1rem; border-top: 1px dotted var(--border); }
+.review-actions .form-field { flex: 1 1 240px; }
+.review-actions .button { cursor: pointer; }
+.review-empty { padding: 1.5rem; border: 2px dotted var(--border); color: var(--muted); text-align: center; font-size: .78rem; }
+
+@media (max-width: 768px) {
+    .site-nav.account-nav { display: flex; }
+    .site-nav.account-nav a, .nav-button { padding: .5rem .45rem; font-size: .46rem; }
+    .feedback-form-shell.is-wide { max-width: 100%; }
+    .review-head { flex-direction: column; align-items: flex-start; }
+}
+
