@@ -1,6 +1,7 @@
 /**
  * GET /api/license/verify?device=..&os=..&arch=..&version=..
  * X-Kryonsec-Key: KRYO-XXXX-XXXX-XXXX     (or ?key=... for older installs)
+ * Authorization: Bearer s_...             (beta accounts, which have no key)
  *
  * The endpoint the app phones home to. Purple Team is gated on it: license.py
  * calls this once a day and caches the answer, so a machine that never reaches
@@ -21,6 +22,12 @@
  * whole grace period — revocation that does not revoke. Returning 200 with
  * valid:false is what actually records the refusal.
  *
+ * Two credentials, one verdict. A membership key answers against the flat
+ * KRYONSEC_KEYS allowlist; a CLI session token answers against `accessFor()`,
+ * which is the same function the download gate and the dashboard ask. That is
+ * the point: three doors, one decision. An entitlement revoked in the review
+ * desk stops this endpoint on the next call, without a second place to edit.
+ *
  * The optional device parameters are how the admin view learns a machine is
  * alive. They are recorded on a valid key only, and a failure to record is
  * swallowed: the daily check-in must never fail because the dashboard's table
@@ -28,13 +35,22 @@
  * architecture and the app version — never a hostname, a path, a target, or
  * anything about the work being done.
  *
+ * A beta machine is not recorded here. The legacy `devices` table is keyed by
+ * membership key and joined to `members`, so a keyless account has no row to
+ * write and inventing one would put beta users in the members table. Their
+ * machines are already visible where they belong — `cli_sessions`, one per
+ * `kryonsec login`, with the last-seen time the dashboard shows.
+ *
  * Environment (Pages -> Settings -> Variables and Secrets, encrypted):
  *   KRYONSEC_KEYS   the same comma-separated list the download gate uses
- *   KRYONSEC_DB     D1 (optional — without it, check-ins just are not recorded)
+ *   KRYONSEC_DB     D1 (optional for keys — without it, check-ins are not
+ *                   recorded. Required for beta tokens: they live in it.)
  */
 
 import { isAllowed, isWellFormedKey } from "../download.js";
+import { bearer, cliSessionFromToken } from "../../_cli.js";
 import { cleanDeviceId, cleanText, nowIso } from "../../_shared.js";
+import { accessFor } from "../../_store.js";
 
 function json(body) {
   return new Response(JSON.stringify(body), {
@@ -90,7 +106,33 @@ export async function onRequestGet({ request, env }) {
     .trim()
     .toUpperCase();
 
-  if (!key) return json({ valid: false, reason: "no key supplied" });
+  // --- beta: a CLI session token, adjudicated by `accessFor` ---------------
+  //
+  // Only reached when no key was supplied, so an existing install's request
+  // takes exactly the path it always took.
+  if (!key) {
+    const token = bearer(request);
+    // A DB-less deployment cannot adjudicate a token, and guessing "yes" would
+    // be the worst possible failure: fail closed, and say why.
+    if (!env.KRYONSEC_DB) {
+      return json({ valid: false, reason: token ? "the license database is unavailable" : "no key supplied" });
+    }
+
+    const cli = await cliSessionFromToken(env.KRYONSEC_DB, token);
+    // No token, or one that no longer resolves. Same answer either way — a
+    // distinct "your token is revoked" here would tell an attacker which
+    // guesses were once real.
+    if (!cli) return json({ valid: false, reason: "no key supplied" });
+
+    const access = await accessFor(env.KRYONSEC_DB, cli.userId);
+    if (!access.entitled) {
+      // `access.reason` is a true sentence about this account, and the app
+      // shows it verbatim. Nothing about the account is added to it.
+      return json({ valid: false, reason: access.reason });
+    }
+    return json({ valid: true, expires: "" });
+  }
+
   if (!isWellFormedKey(key)) return json({ valid: false, reason: "malformed" });
   if (!isAllowed(key, env.KRYONSEC_KEYS)) {
     // Not recorded: an unrecognised key is not a member's machine.
