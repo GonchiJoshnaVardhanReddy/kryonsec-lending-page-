@@ -16,6 +16,7 @@ import { DatabaseSync } from "node:sqlite";
 const MIGRATIONS = [
   new URL("../../migrations/0000_existing.sql", import.meta.url),
   new URL("../../migrations/0001_beta.sql", import.meta.url),
+  new URL("../../migrations/0002_cli_login.sql", import.meta.url),
 ];
 
 /** Strip `undefined`, which node:sqlite rejects and D1 tolerates as null. */
