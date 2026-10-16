@@ -1,0 +1,50 @@
+# Local development values for `wrangler pages dev`.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# `.dev.vars` is git-ignored. Do not commit real values, and do not paste
+# production secrets into it — use throwaway OAuth apps registered against
+# http://localhost:8788/api/auth/<provider>/callback instead.
+#
+# In production these same names live under
+#   Pages -> Settings -> Variables and Secrets
+# and everything marked SECRET must be stored encrypted. See DEPLOYING-BETA.md.
+
+# --- bindings ---------------------------------------------------------------
+# Bindings are declared in the Pages project, not here. For local work,
+# `wrangler pages dev` needs them on the command line instead:
+#
+#   npx wrangler pages dev . \
+#     --d1 KRYONSEC_DB=<database-id> \
+#     --kv KRYONSEC_FEEDBACK=<namespace-id>
+#
+# This block is only a reminder of the names the code reads.
+#   KRYONSEC_DB        D1   — required; the beta paths fail closed without it
+#   KRYONSEC_FEEDBACK  KV   — the feedback form, and the review desk's token
+
+# --- identity ---------------------------------------------------------------
+# Required. Without these, /signin renders and every callback fails.
+KRYONSEC_GOOGLE_CLIENT_ID=""
+KRYONSEC_GOOGLE_CLIENT_SECRET=""          # SECRET
+
+KRYONSEC_GITHUB_CLIENT_ID=""
+KRYONSEC_GITHUB_CLIENT_SECRET=""          # SECRET
+
+# --- membership keys (unchanged by the beta) --------------------------------
+# Comma-separated. A key here is valid until it is removed. It takes
+# precedence over a beta token, on the server and in the CLI.
+KRYONSEC_KEYS="KRYO-XXXX-XXXX-XXXX"
+
+# --- review desk ------------------------------------------------------------
+KRYONSEC_ADMIN_TOKEN=""                   # SECRET — also stored in KV at admin/token
+
+# --- release lookup ---------------------------------------------------------
+KRYONSEC_REPO=""                          # owner/name, e.g. "kryon-sec/kryonsec"
+KRYONSEC_GITHUB_TOKEN=""                  # SECRET, optional — raises the API rate limit
+
+# --- email ------------------------------------------------------------------
+# Leave both unset. There is no adapter yet: with no provider configured,
+# `functions/_email.js` reports success, drains the queue, and logs the
+# envelope. Nothing is delivered.
+#   KRYONSEC_EMAIL_PROVIDER="resend"
+#   KRYONSEC_EMAIL_FROM="beta@kryonsec.in"

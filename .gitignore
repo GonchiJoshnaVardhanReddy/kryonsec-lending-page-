@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# Wrangler's local secrets file. It holds the same values the Pages project
+# keeps encrypted, so a filled-in copy is a credential in the repository.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
 # Dependencies
 node_modules/
 

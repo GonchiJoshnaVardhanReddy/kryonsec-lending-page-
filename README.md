@@ -2,6 +2,19 @@
 
 This is the standalone static website for [kryonsec.in](https://kryonsec.in). It is intentionally separate from the Kryonsec agent repository and can be deployed without a backend.
 
+The site now also serves the beta: applications, review, per-account access,
+and the sign-in `kryonsec login` uses. Two documents cover it:
+
+- **[DEPLOYING-BETA.md](DEPLOYING-BETA.md)** — migrations, environment,
+  the first administrator, deploy, rollback, and the post-deploy smoke test.
+  Read this before touching production.
+- **[SECURITY-NOTES.md](SECURITY-NOTES.md)** — the credential model, and an
+  explicit list of what is *not* enforced. Read this before promising anyone
+  that access can be taken away.
+
+Nothing about the membership-key path changed. Existing keys and published
+install scripts keep working.
+
 ## Local development
 
 From this directory, run:
@@ -48,6 +61,8 @@ The existing `CNAME` file contains `kryonsec.in`. Cloudflare Pages does not requ
 - `functions/api/feedback.js` — the feedback sink at `/api/feedback`
 - `install.sh`, `install.ps1` — the member installer, served at `/install.sh` and `/install.ps1`
 - `tests/` — endpoint checks (`node --test "tests/*.test.mjs"`)
+- `migrations/` — D1 schema, applied in order. See [DEPLOYING-BETA.md](DEPLOYING-BETA.md).
+- `.dev.vars.example` — local environment template (`.dev.vars` is git-ignored)
 - `_headers` — Cloudflare Pages security headers and CSP
 - `robots.txt`, `sitemap.xml` — crawler metadata
 
