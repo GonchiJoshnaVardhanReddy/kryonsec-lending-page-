@@ -10,11 +10,14 @@ been touched.
 | | landing (`kryonsec-landing`) | CLI (`kryonsec`) |
 |---|---|---|
 | branch | `feat/beta-onboarding` | `feat/beta-login` |
-| head | `ff644bd` | `2f8171c` |
-| commits | 9 | 2 |
-| diff vs. base | 51 files, +9115 / −50 | 4 files, +919 / −35 |
+| head, at the time of writing | `da9e668` | `2f8171c` |
+| commits | 10 | 2 |
+| diff vs. base | 51 files, +9116 / −50 | 4 files, +919 / −35 |
 
-The landing branch, oldest first — the last four are from this session:
+(Head moves with every commit that touches the branch, including this file's
+own — so read it as "where the branch had got to when this was written".)
+
+The landing branch, oldest first — the last five are from this session:
 
 ```
 24459ea  identity, entitlement, and the access gate
@@ -26,6 +29,7 @@ cf02d61  the way in — sign-in, apply, and sign-out
 39added  how to deploy it, and what it does not protect against
 b15b5ac  the API contract, in one table
 ff644bd  the implementation report
+da9e668  the report counts its own commit
 ```
 
 ---
