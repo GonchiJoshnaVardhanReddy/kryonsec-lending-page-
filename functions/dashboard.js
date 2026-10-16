@@ -15,7 +15,7 @@
  */
 
 import { csrfFor, currentSession, isAdminUser } from "./_auth.js";
-import { mintDownloadToken } from "./_cli.js";
+import { listCliSessions, mintDownloadToken } from "./_cli.js";
 import { betaPage, detail, notice, statusPill, when } from "./_pages.js";
 import { CODE_TTL_MIN, esc, redirect } from "./_shared.js";
 import { accessFor, listIdentities } from "./_store.js";
@@ -37,6 +37,70 @@ const card = (kicker, right, body) =>
 
 /** A copy-pasteable command, in the component the landing page already uses. */
 const command = (text) => `<div class="install-command"><code>${esc(text)}</code></div>`;
+
+/**
+ * The machines signed in to this account, and the way to turn one off.
+ *
+ * The revoke button is a form and not a link because it changes something —
+ * a GET that revoked would be revocable by any image tag on any page. It
+ * carries no confirmation dialogue: the action is "sign this machine out",
+ * it is easily undone by signing in again, and a modal on a page like this is
+ * a way to teach people to click through modals.
+ *
+ * Revoked rows stay in the table. A machine that disappears when it is cut off
+ * cannot be told apart from one that was never there, and "which of my
+ * machines did I turn off" is the question this table exists to answer.
+ */
+function machinesCard(rows, csrf) {
+  if (!rows.length) {
+    return card(
+      "02 / THE COMMAND LINE",
+      "NO MACHINES YET",
+      `<p class="form-note">Run <code>kryonsec login</code> on the machine you want to use, then approve it here. Nothing is signed in yet.</p>
+                    ${command("kryonsec login")}`,
+    );
+  }
+
+  const live = rows.filter((r) => !r.revoked_at);
+  // Every cell is `{html}` rather than a bare string: `esc(when(…))` is what
+  // keeps a value that came out of the database from being markup, and the two
+  // cells that *are* markup say so explicitly instead of by accident.
+  const cells = rows.slice(0, 10).map((r) => {
+    const revoked = Boolean(r.revoked_at);
+    return [
+      {
+        html: `<code>${esc(r.token_prefix)}</code><br><span class="form-note">${esc(r.label || "machine")}</span>`,
+      },
+      { html: esc(when(r.created_at)) },
+      { html: revoked ? statusPill("revoked") : esc(when(r.last_used_at || r.created_at)) },
+      {
+        html: revoked
+          ? `<span class="form-note">signed out</span>`
+          : `<form class="feedback-form" method="post" action="/api/beta/machines">
+                            <input type="hidden" name="csrf" value="${esc(csrf)}">
+                            <input type="hidden" name="id" value="${esc(r.id)}">
+                            <input type="hidden" name="intent" value="revoke">
+                            <button class="button button-secondary button-small" type="submit">SIGN OUT</button>
+                        </form>`,
+      },
+    ];
+  });
+
+  const head = ["MACHINE", "ADDED", "LAST SEEN", ""].map((h) => `<th>${esc(h)}</th>`).join("");
+  const body = cells.map((r) => `<tr>${r.map((c) => `<td>${c.html}</td>`).join("")}</tr>`).join("");
+
+  return card(
+    "02 / THE COMMAND LINE",
+    `${live.length} SIGNED IN`,
+    `<p class="form-note">Run this in a terminal on the machine you want to use. It opens a browser once; approve it and the terminal picks the sign-in up on its own.</p>
+                    ${command("kryonsec login")}
+                    <div class="admin-table-wrap"><table class="admin-table">
+                        <thead><tr>${head}</tr></thead>
+                        <tbody>${body}</tbody>
+                    </table></div>
+                    <p class="form-note">A token lasts 90 days. Signing out here ends it on the server straight away; the machine itself finds out the next time it checks in, which is within the hour. The installer command above is a different, one-time credential and is not affected.</p>`,
+  );
+}
 
 function installCard(origin, token) {
   const url = `${origin}/api/beta/download?t=${token}`;
@@ -61,7 +125,7 @@ function installCard(origin, token) {
  * `access.status` is the only input. Every branch below is a different true
  * sentence about the same account, and there is no branch that guesses.
  */
-function view({ access, identities, origin, token }) {
+function view({ access, identities, origin, token, machines = [], csrf = "" }) {
   const a = access.application;
   const heading = (h, accent = "") => ({ heading: h, accent });
 
@@ -83,7 +147,8 @@ function view({ access, identities, origin, token }) {
           detail("APPLICATION", when(a?.submitted_at)),
           detail("SIGN-IN", esc(identityLabel(identities)), true),
         )}
-                ${installCard(origin, token)}`,
+                ${installCard(origin, token)}
+                <a id="machines"></a>${machinesCard(machines, csrf)}`,
       };
 
     // --- applied, waiting -------------------------------------------------
@@ -202,7 +267,11 @@ export async function onRequestGet({ request, env }) {
   // who would be refused at the gate is a live credential with no purpose, and
   // the schema would accumulate them for every page view of every refusal.
   const token = access.entitled ? await mintDownloadToken(db, userId) : "";
-  const rendered = view({ access, identities, origin, token });
+
+  // Asked for only where it is shown. An applicant waiting on a decision has
+  // no machines and no use for the query, and that is most page views.
+  const machines = access.status === "active" ? await listCliSessions(db, userId) : [];
+  const rendered = view({ access, identities, origin, token, machines, csrf });
 
   return betaPage({
     title: "Your account",

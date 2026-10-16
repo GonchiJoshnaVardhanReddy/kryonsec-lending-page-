@@ -120,14 +120,33 @@ export async function listCliSessions(db, userId) {
  *
  * Guarded (`WHERE revoked_at IS NULL`) so revoking twice is a no-op that
  * reports honestly rather than overwriting the original reason with a later
- * one. An entitlement check is not repeated here on purpose: revoking a
- * session the person does not own would require knowing its id, and the id is
- * only ever served to its owner or to an admin.
+ * one.
+ *
+ * `userId` is optional and is what the *browser* path passes: the dashboard
+ * revokes by session id, and a session id is a value that arrives from a form.
+ * Scoping the statement to the owner means a tampered id matches nothing
+ * rather than cutting off a stranger's machine — the ownership check and the
+ * revocation are then one statement, with no window between them for the row
+ * to change hands. The CLI path passes no `userId` on purpose: it has no id at
+ * all, only its own token, and `onRequestPost` in api/beta/cli/logout.js
+ * resolves that token to a session this account already owns.
+ *
+ * An entitlement check is not repeated here either way: revoking a session
+ * never grants anything, and access is decided at the gate that hands out
+ * downloads and license verdicts, by `accessFor()`, every time.
  */
-export async function revokeCliSession(db, { id, actor = "self", reason = null }) {
+export async function revokeCliSession(db, { id, actor = "self", reason = null, userId = null }) {
+  const scoped = Boolean(userId);
   const claim = await db
-    .prepare("UPDATE cli_sessions SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL")
-    .bind(nowIso(), reason ? `${actor}: ${reason}` : actor, id)
+    .prepare(
+      `UPDATE cli_sessions SET revoked_at = ?, revoked_reason = ?
+        WHERE id = ? AND revoked_at IS NULL${scoped ? " AND user_id = ?" : ""}`,
+    )
+    .bind(
+      ...(scoped
+        ? [nowIso(), reason ? `${actor}: ${reason}` : actor, id, userId]
+        : [nowIso(), reason ? `${actor}: ${reason}` : actor, id]),
+    )
     .run();
   return Boolean(claim.meta && claim.meta.changes === 1);
 }

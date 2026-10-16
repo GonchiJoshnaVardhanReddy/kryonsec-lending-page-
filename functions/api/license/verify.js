@@ -119,10 +119,17 @@ export async function onRequestGet({ request, env }) {
     }
 
     const cli = await cliSessionFromToken(env.KRYONSEC_DB, token);
-    // No token, or one that no longer resolves. Same answer either way — a
-    // distinct "your token is revoked" here would tell an attacker which
-    // guesses were once real.
-    if (!cli) return json({ valid: false, reason: "no key supplied" });
+    // No token, or one that no longer resolves — revoked, expired, or never
+    // real. Same sentence for all of them: a distinct "your token is revoked"
+    // would tell someone guessing which guesses were once credentials, and
+    // `cliSessionFromToken` cannot tell them apart anyway, because the filter
+    // is in its WHERE clause rather than after it.
+    //
+    // It reads as advice rather than as a status because the reader is a
+    // person whose machine just stopped: the app prints this verbatim, and
+    // "no key supplied" on a machine that has never held a key describes the
+    // server's bookkeeping instead of telling them what to do.
+    if (!cli) return json({ valid: false, reason: "not signed in" });
 
     const access = await accessFor(env.KRYONSEC_DB, cli.userId);
     if (!access.entitled) {
