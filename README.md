@@ -12,6 +12,8 @@ and the sign-in `kryonsec login` uses. Two documents cover it:
   explicit list of what is *not* enforced. Read this before promising anyone
   that access can be taken away.
 - **[API.md](API.md)** — every route, what authorises it, and what it answers.
+- **[BETA-IMPLEMENTATION-REPORT.md](BETA-IMPLEMENTATION-REPORT.md)** — what was
+  built, what was verified, and what is still blocked.
 
 Nothing about the membership-key path changed. Existing keys and published
 install scripts keep working.
