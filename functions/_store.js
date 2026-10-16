@@ -72,6 +72,20 @@ export async function getEntitlement(db, userId) {
   return db.prepare("SELECT * FROM entitlements WHERE user_id = ?").bind(userId).first();
 }
 
+/** The providers this account signs in with. Shown, never merged — an identity
+ *  is linked by a signed-in action, not by two providers agreeing on an email. */
+export async function listIdentities(db, userId) {
+  if (!userId) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT provider, email, email_verified, created_at, last_login_at
+         FROM identities WHERE user_id = ? ORDER BY created_at`,
+    )
+    .bind(userId)
+    .all();
+  return results || [];
+}
+
 export async function activeApplication(db, userId) {
   if (!userId) return null;
   // At most one row can match: idx_applications_active is a unique index over
