@@ -28,3 +28,9 @@ desktop.ini
 # Local scratch
 *.local
 *~
+
+# Local Wrangler state
+.wrangler/
+
+# Local database backups — never commit production exports
+beta-backup-*.sql
