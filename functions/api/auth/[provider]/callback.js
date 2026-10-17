@@ -40,6 +40,7 @@ import {
   findOrCreateUser,
   isConfigured,
   isProvider,
+  providerTitle,
   stateMatches,
 } from "../../../_oauth.js";
 
@@ -56,8 +57,30 @@ export async function onRequestGet({ request, env, params }) {
     return response;
   };
 
-  if (!isProvider(provider) || !isConfigured(env, provider)) {
-    return fail("NOT CONFIGURED", "Sign-in is not switched on yet", "The beta is still being set up.", 503);
+  if (!isProvider(provider)) {
+    return fail("UNKNOWN PROVIDER", "That sign-in option does not exist", "Pick one of the options on the front page.", 404);
+  }
+
+  if (!isConfigured(env, provider)) {
+    return fail(
+      "NOT CONFIGURED",
+      `${providerTitle(provider)} sign-in is not switched on yet`,
+      "The beta is still being set up.",
+      503,
+    );
+  }
+
+  // A provider can be registered while the account store is not. Exchanging
+  // the code in that state would mint a session that cannot be written, and
+  // the browser would see a 500 with no explanation. Fail before the exchange.
+  if (!env.KRYONSEC_DB) {
+    console.error("auth: KRYONSEC_DB is not bound; refusing to start an exchange");
+    return fail(
+      "NOT CONFIGURED",
+      "Sign-in is not fully set up yet",
+      "The beta's account store is not available on this deployment. Check back shortly.",
+      503,
+    );
   }
 
   const flow = decodeFlow(parseCookies(request)[OAUTH_COOKIE]);

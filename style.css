@@ -68,6 +68,9 @@ a { color: inherit; }
 .site-nav { display: flex; align-items: center; gap: .25rem; font-family: var(--pixel); font-size: .57rem; }
 .site-nav a { padding: .75rem .65rem; text-decoration: none; }
 .site-nav a:hover, .site-nav a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+/* The account link. Accent so it reads as an action among the section links,
+   while keeping the same pixel type, padding and focus ring as its neighbours. */
+.site-nav a.nav-signin { color: var(--accent); }
 .mobile-menu-toggle { display: none; }
 .theme-toggle { display: inline-flex; align-items: center; gap: .45rem; padding: .7rem .6rem; border: 2px solid var(--fg); background: transparent; color: var(--fg); cursor: pointer; font: .48rem var(--pixel); white-space: nowrap; }
 .theme-toggle:hover, .theme-toggle:focus-visible { background: var(--fg); color: var(--bg); outline: 0; }
@@ -88,6 +91,11 @@ h1 { max-width: 680px; margin-bottom: 1.5rem; font-size: clamp(1.8rem, 3.5vw, 3.
 .button-primary:hover, .button-primary:focus-visible { background: var(--accent); border-color: var(--accent); }
 .button-secondary { background: var(--bg); }
 .button-secondary:hover, .button-secondary:focus-visible { background: var(--paper); }
+/* A provider that this deployment cannot offer. Shown, so the missing one is
+   named rather than silently absent; not a link, so it cannot lead anywhere. */
+.button.is-unavailable { border-color: var(--muted); background: var(--bg); color: var(--muted); cursor: not-allowed; opacity: .7; }
+.button.is-unavailable:hover, .button.is-unavailable:focus-visible { transform: none; border-color: var(--muted); background: var(--bg); color: var(--muted); }
+.button.is-loading { cursor: progress; pointer-events: none; opacity: .75; }
 .status-panel { border: 2px solid var(--fg); background: var(--paper); }
 .panel-title, .status-note { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; font-size: .57rem; }
 .panel-title { border-bottom: 2px solid var(--fg); }

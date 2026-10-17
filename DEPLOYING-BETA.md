@@ -35,7 +35,8 @@ script already published, keeps working exactly as it did.
 - A **D1** database bound to the Pages project as `KRYONSEC_DB`.
 - The existing **KV** namespace bound as `KRYONSEC_FEEDBACK` (feedback form;
   also holds the review desk's admin token).
-- Google and GitHub OAuth apps — see §4. **Blocked: these do not exist yet.**
+- Google and GitHub OAuth apps — see §4. The GitHub app exists; the Google
+  app still needs to be created.
 
 ---
 
@@ -113,6 +114,32 @@ for it would be asking for more than the sign-in needs.
 
 For local work, add `http://localhost:8788/api/auth/<provider>/callback` as a
 second allowed callback in each app.
+
+### Preview deployments
+
+Cloudflare Pages keeps **production** and **preview** variables and bindings
+separately. A branch preview does not inherit the production values, so a
+preview whose Preview environment has no `KRYONSEC_*_CLIENT_ID` /
+`..._CLIENT_SECRET` (or no `KRYONSEC_DB` binding) renders `/signin` with both
+providers marked unavailable, exactly as an unconfigured production would.
+
+The callback URI is built from the request origin, so the provider has to
+accept the preview origin too. Either add
+
+```
+https://feat-beta-onboarding.kryonsec-landing.pages.dev/api/auth/github/callback
+```
+
+as a second callback in the existing GitHub app, or register a throwaway
+preview app and put its credentials in the Preview environment. Do not replace
+the production callback. Google has no such shortcut — it requires its own
+app, and the callback list has to include both origins before a preview can
+complete a Google sign-in.
+
+Set preview values under **Pages → Settings → Variables and Secrets →
+Preview**. Never put the production client secret into a public fork's
+preview; the preview environment is readable by anyone who can edit the
+project.
 
 ---
 

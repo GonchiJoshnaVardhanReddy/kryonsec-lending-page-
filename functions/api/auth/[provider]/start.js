@@ -13,7 +13,14 @@
  */
 
 import { oauthCookie } from "../../../_auth.js";
-import { authFailure, beginFlow, encodeFlow, isConfigured, isProvider } from "../../../_oauth.js";
+import {
+  authFailure,
+  beginFlow,
+  encodeFlow,
+  isConfigured,
+  isProvider,
+  providerTitle,
+} from "../../../_oauth.js";
 
 export async function onRequestGet({ request, env, params }) {
   const provider = String(params.provider || "");
@@ -29,7 +36,7 @@ export async function onRequestGet({ request, env, params }) {
   if (!isConfigured(env, provider)) {
     return authFailure(
       "NOT CONFIGURED",
-      "Sign-in is not switched on yet",
+      `${providerTitle(provider)} sign-in is not switched on yet`,
       "The beta is still being set up. Check back shortly.",
       { status: 503 },
     );

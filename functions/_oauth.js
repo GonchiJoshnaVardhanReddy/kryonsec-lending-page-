@@ -77,6 +77,11 @@ const PROVIDERS = {
 export const PROVIDER_NAMES = Object.keys(PROVIDERS);
 export const isProvider = (name) => Object.hasOwn(PROVIDERS, name);
 
+const PROVIDER_TITLES = { google: "Google", github: "GitHub" };
+
+/** The provider's name as a person reads it, for headings and messages. */
+export const providerTitle = (name) => PROVIDER_TITLES[name] || String(name);
+
 /** First non-empty env value, or "". */
 function envValue(env, names) {
   for (const name of names) if (env?.[name]) return String(env[name]);
