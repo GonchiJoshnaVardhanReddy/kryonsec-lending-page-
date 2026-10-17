@@ -1,5 +1,5 @@
 /**
- * GET|POST /admin — the review desk.
+ * GET|POST /admin — the review desk and the operational dashboard.
  *
  * Two doors, and they are genuinely different:
  *
@@ -10,28 +10,45 @@
  *     read-only member view. Left exactly as it was so that what works today
  *     keeps working.
  *
- * The token door is a POST and the review desk is a GET, which is the right way
+ * The token door is a POST and the dashboard is a GET, which is the right way
  * round: a token in a query string lands in the browser history, the Referer,
  * and any proxy log, and the token has no expiry. The session cookie that opens
- * the review desk is HttpOnly, SameSite, and expires.
+ * the dashboard is HttpOnly, SameSite, and expires.
  *
  * Every mutation lives in `api/admin/action.js` rather than here, because the
  * guard those actions need — session, then `admins`, then CSRF — is a single
  * thing and this file has no business having a second copy of it.
  *
+ * The sections are views of the same route (`?view=`), not separate routes with
+ * separate guards. One authorization check, one place to read it, one place to
+ * get it wrong. Nothing on this page is trusted: every value is escaped, every
+ * table cell defaults to escaped text, and no variable or secret value is ever
+ * read into the markup — the security view reports presence, never contents.
+ *
  * Environment: KRYONSEC_DB (D1), KRYONSEC_ADMIN_TOKEN or KV `admin/token`.
  */
 
 import { csrfFor, currentSession, isAdminUser } from "./_auth.js";
-import { betaPage, csrfField, notice, when } from "./_pages.js";
+import { betaPage, csrfField, notice, statusPill, when } from "./_pages.js";
 import { esc, isAdmin, page } from "./_shared.js";
 import {
+  AUDIT_PREFIXES,
+  countAllCliSessions,
+  countApplications,
+  countAudit,
+  countUsers,
   listAccess,
+  listAllCliSessions,
   listApplications,
   listAudit,
+  listDevices,
   listOutbox,
+  listUsers,
+  overviewCounts,
   programmeStatus,
   queueCounts,
+  schemaSnapshot,
+  userAdminDetail,
 } from "./_store.js";
 
 /**
@@ -62,6 +79,8 @@ const OUTCOMES = {
   revoked: ["ok", "Access revoked. Downloads and the command line stop now."],
   suspended: ["ok", "Access suspended."],
   programme: ["ok", "Programme status changed."],
+  session_revoked: ["ok", "Website session revoked. That browser is signed out on its next request."],
+  cli_revoked: ["ok", "Command-line session revoked. The machine is refused on its next check-in."],
   already: ["warn", "Someone else got there first — nothing was changed."],
   invalid: ["error", "That decision was not understood, so nothing was changed."],
   missing: ["error", "That record no longer exists."],
@@ -116,7 +135,56 @@ function table(headers, rows) {
                 </table></div>`;
 }
 
-// --- the review desk --------------------------------------------------------
+// --- navigation -------------------------------------------------------------
+
+const VIEWS = [
+  ["overview", "OVERVIEW"],
+  ["applications", "APPLICATIONS"],
+  ["activity", "ACTIVITY"],
+  ["users", "USERS & ACCESS"],
+  ["devices", "DEVICES & CLI"],
+  ["security", "SECURITY"],
+];
+
+const href = (view, params = {}) => {
+  const search = new URLSearchParams({ view, ...params });
+  return `/admin?${search}`;
+};
+
+function tabs(view) {
+  const current = view === "user" ? "users" : view;
+  const links = VIEWS.map(([key, label]) => {
+    const cls = key === current ? "button button-primary button-small" : "button button-secondary button-small";
+    return `<a class="${cls}" href="${esc(href(key))}">${esc(label)}</a>`;
+  }).join(" ");
+  return `<nav class="admin-tabs" aria-label="Admin sections">${links}</nav>`;
+}
+
+function pager({ view, params = {}, page, pages, label }) {
+  if (pages <= 1) return "";
+  const back = page > 1
+    ? `<a class="button button-secondary button-small" href="${esc(href(view, { ...params, page: page - 1 }))}">PREVIOUS</a>`
+    : "";
+  const next = page < pages
+    ? `<a class="button button-secondary button-small" href="${esc(href(view, { ...params, page: page + 1 }))}">NEXT</a>`
+    : "";
+  return `<div class="form-actions admin-pager">${back}<span class="form-note">PAGE ${page} / ${pages} · ${esc(label)}</span>${next}</div>`;
+}
+
+function searchForm({ view, params = {}, q = "", placeholder }) {
+  const hidden = Object.entries(params)
+    .filter(([name]) => name !== "page")
+    .map(([name, value]) => `<input type="hidden" name="${esc(name)}" value="${esc(value)}">`)
+    .join("");
+  return `<form class="admin-search" method="get" action="/admin">
+                    <input type="hidden" name="view" value="${esc(view)}">${hidden}
+                    <input type="search" name="q" value="${esc(q)}" maxlength="80" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}">
+                    <button class="button button-secondary button-small" type="submit">SEARCH</button>
+                    ${q ? `<a class="button button-secondary button-small" href="${esc(href(view, params))}">CLEAR</a>` : ""}
+                </form>`;
+}
+
+// --- cards ------------------------------------------------------------------
 
 const STATUSES = ["pending", "approved", "waitlisted", "rejected", "all"];
 const FILTER_LABELS = { all: "ALL", pending: "PENDING", approved: "APPROVED", waitlisted: "WAITLISTED", rejected: "REJECTED" };
@@ -162,11 +230,38 @@ function applicationCard(a, csrf) {
             </div>`;
 }
 
-/** An entitlement that exists, and the two things that can be done to it. */
+/** The programme switch. Ending it is stated as what it does, because the
+ *  consequence lands on people who are not in the room. */
+function programmeCard(programme, csrf) {
+  const ended = programme.status === "ended";
+  return `<div class="review-card">
+                <div class="review-head"><span>EARLY ACCESS</span><span>${esc(String(programme.status || "active").toUpperCase())}</span></div>
+                <div class="review-body">
+                    <p class="form-note">${
+                      ended
+                        ? `Closed${programme.ended_at ? ` on ${esc(when(programme.ended_at))}` : ""}. Every account is refused at the download gate and at the command line, including accounts whose own access was still active.`
+                        : "Open. Accounts with an active entitlement can download and use the command line."
+                    }</p>
+                    <form class="feedback-form" method="post" action="/api/admin/action">
+                        ${csrfField(csrf)}
+                        <input type="hidden" name="intent" value="programme">
+                        <div class="review-actions">
+                            ${
+                              ended
+                                ? `<button class="button button-primary button-small" type="submit" name="status" value="active">REOPEN</button>`
+                                : `<button class="button button-secondary button-small" type="submit" name="status" value="ended">END THE PROGRAMME</button>`
+                            }
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+}
+
+/** An entitlement that exists, and the things that can be done to it. */
 function accessCard(row, csrf) {
   const live = row.status === "active";
   return `<div class="review-card">
-                <div class="review-head"><span>${esc(row.name || row.email || row.user_id)}</span><span>${esc(live ? "ACTIVE" : row.status.toUpperCase())}</span></div>
+                <div class="review-head"><span>${esc(row.name || row.email || row.user_id)}</span><span>${esc(live ? "ACTIVE" : String(row.status).toUpperCase())}</span></div>
                 <div class="review-body">
                     <dl>
                         ${QUESTION("ACCOUNT", row.email)}
@@ -193,111 +288,432 @@ function accessCard(row, csrf) {
             </div>`;
 }
 
-async function review({ request, env, db, session }) {
-  const url = new URL(request.url);
-  const asked = url.searchParams.get("status") || "pending";
-  const status = STATUSES.includes(asked) ? asked : "pending";
+// --- overview ---------------------------------------------------------------
 
-  const csrf = await csrfFor(session.token);
-  const [counts, programme, applications, access, outbox, auditLog] = await Promise.all([
-    queueCounts(db),
+function statGrid(counts) {
+  const items = [
+    ["ACCOUNTS", counts.users, ""],
+    ["PENDING REVIEW", counts.pending, ""],
+    ["ACTIVE ACCESS", counts.active_access, ""],
+    ["WEB SESSIONS", counts.live_sessions, ""],
+    ["CLI MACHINES", counts.live_cli, ""],
+    ["ADMINS", counts.admins, ""],
+    ["REFUSED 24H", counts.refused_day, Number(counts.refused_day) ? "is-warn" : ""],
+    ["FAILED MAIL", counts.failed_mail, Number(counts.failed_mail) ? "is-warn" : ""],
+  ];
+  return `<div class="stat-grid">${items
+    .map(([label, value, tone]) => `<div class="stat ${tone}"><span>${esc(label)}</span><strong>${esc(Number(value || 0))}</strong></div>`)
+    .join("")}</div>`;
+}
+
+/**
+ * Configuration presence, never values.
+ *
+ * Reading a secret into a page — even into a comparison that renders only a
+ * word — is how a secret ends up in a template cache or a debugger. Every row
+ * below tests truthiness of an environment name and nothing else.
+ */
+async function configState(env) {
+  const both = (id, secret) => Boolean(env[id]) && Boolean(env[secret]);
+  const tokenConfigured = Boolean(await adminToken(env));
+  return [
+    ["DATABASE (KRYONSEC_DB)", "ok", "Bound."],
+    ["FEEDBACK KV (KRYONSEC_FEEDBACK)", env.KRYONSEC_FEEDBACK ? "ok" : "warn", env.KRYONSEC_FEEDBACK ? "Bound." : "Not bound. Feedback storage and the KV admin-token lookup are unavailable."],
+    ["GITHUB SIGN-IN", both("KRYONSEC_GITHUB_CLIENT_ID", "KRYONSEC_GITHUB_CLIENT_SECRET") ? "ok" : "warn", both("KRYONSEC_GITHUB_CLIENT_ID", "KRYONSEC_GITHUB_CLIENT_SECRET") ? "Client id and encrypted secret configured." : "Client id and/or secret not configured. GitHub sign-in is offered nowhere and its callback refuses."],
+    ["GOOGLE SIGN-IN", both("KRYONSEC_GOOGLE_CLIENT_ID", "KRYONSEC_GOOGLE_CLIENT_SECRET") ? "ok" : "warn", both("KRYONSEC_GOOGLE_CLIENT_ID", "KRYONSEC_GOOGLE_CLIENT_SECRET") ? "Client id and encrypted secret configured." : "Client id and/or secret not configured. Google sign-in is offered nowhere and its callback refuses."],
+    ["LEGACY ADMIN TOKEN", tokenConfigured ? "ok" : "warn", tokenConfigured ? "Configured (value never read into this page)." : "No token in KRYONSEC_ADMIN_TOKEN or KV admin/token. The read-only member door is closed."],
+    ["EMAIL PROVIDER", env.KRYONSEC_EMAIL_PROVIDER ? "ok" : "warn", env.KRYONSEC_EMAIL_PROVIDER ? "Provider configured." : "No provider. Notifications are queued and marked sent without delivery (log mode)."],
+    ["RELEASE REPOSITORY", env.KRYONSEC_REPO ? "ok" : "warn", env.KRYONSEC_REPO ? "Repository configured." : "KRYONSEC_REPO is unset, so release lookups have no source."],
+  ];
+}
+
+async function overviewView({ env, db, csrf, session }) {
+  const [counts, programme, applications, auditLog, outbox, config] = await Promise.all([
+    overviewCounts(db),
     programmeStatus(db),
-    listApplications(db, { status }),
-    listAccess(db, { limit: 50 }),
-    listOutbox(db, { limit: 25 }),
-    listAudit(db, { limit: 25 }),
+    listApplications(db, { status: "pending", limit: 5 }),
+    listAudit(db, { limit: 10 }),
+    listOutbox(db, { limit: 5 }),
+    configState(env),
   ]);
 
-  const outcome = OUTCOMES[url.searchParams.get("msg") || ""];
-  const actor = session.user.email || session.user.user_id;
+  const warnings = config.filter(([, state]) => state === "warn").map(([name]) => `${name} is not configured`);
+  if (Number(counts.failed_mail)) warnings.push(`${counts.failed_mail} notification(s) failed to send`);
+
+  return `${tabs("overview")}
+                ${statGrid(counts)}
+                ${warnings.length ? notice("warn", `Needs attention: ${warnings.join("; ")}. See SECURITY.`) : ""}
+
+                <h3>PROGRAMME</h3>
+                ${programmeCard(programme, csrf)}
+
+                <h3>PENDING APPLICATIONS</h3>
+                <p>${Number(counts.pending || 0)} waiting. <a href="${esc(href("applications", { status: "pending" }))}">Open the queue</a>.</p>
+                ${
+                  applications.length
+                    ? applications.map((a) => applicationCard(a, csrf)).join("")
+                    : `<p class="review-empty">Nothing is pending.</p>`
+                }
+
+                <h3>AUDIT — RECENT ACTIVITY</h3>
+                ${table(
+                  ["WHEN", "ACTOR", "ACTION", "TARGET"],
+                  auditLog.map((r) => [ago(r.created_at), r.actor, r.action, r.target || "—"]),
+                )}
+                <p><a href="${esc(href("activity"))}">All activity</a> · signed in as ${esc(session.user.email || session.user.user_id)}</p>
+
+                <h3>NOTIFICATIONS</h3>
+                ${table(
+                  ["WHEN", "KIND", "TO", "STATUS", "ATTEMPTS"],
+                  outbox.map((r) => [ago(r.created_at), r.kind, r.to_email, r.sent_at ? "sent" : r.status, r.attempts]),
+                )}`;
+}
+
+// --- applications -----------------------------------------------------------
+
+async function applicationsView({ db, csrf, url }) {
+  const asked = url.searchParams.get("status") || "pending";
+  const status = STATUSES.includes(asked) ? asked : "pending";
+  const q = String(url.searchParams.get("q") || "").slice(0, 80);
+  const askedPage = Math.max(1, Math.min(Number(url.searchParams.get("page")) || 1, 10_000));
+  const size = 20;
+
+  const [counts, total] = await Promise.all([
+    queueCounts(db),
+    countApplications(db, { status, q }),
+  ]);
+  // Clamp after the count is known, so `?page=999` lands on the last real page
+  // rather than on an empty one that looks like a failed search.
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(askedPage, pages);
+  const applications = await listApplications(db, { status, q, limit: size, offset: (page - 1) * size });
 
   const filters = STATUSES.map((s) => {
     const label = `${FILTER_LABELS[s]} ${s === "all" ? "" : counts[s] ?? 0}`.trim();
     const cls = s === status ? "button button-primary button-small" : "button button-secondary button-small";
-    return `<a class="${cls}" href="/admin?status=${s}">${esc(label)}</a>`;
+    return `<a class="${cls}" href="${esc(href("applications", q ? { status: s, q } : { status: s }))}">${esc(label)}</a>`;
   }).join(" ");
 
-  const ended = programme.status === "ended";
+  const params = q ? { status, q } : { status };
 
-  return betaPage({
-    title: "Review",
-    kicker: "KR / REVIEW",
-    right: "ADMINS",
-    heading: ended ? "THE BETA IS" : "WHO GETS",
-    accent: ended ? "CLOSED." : "IN.",
-    lede: `Signed in as ${actor}. Every action here is written to the audit log, and none of it is reversible without another entry.`,
-    notice: outcome ? notice(outcome[0], outcome[1]) : "",
-    session,
-    admin: true,
-    csrf,
-    wide: true,
-    body: `                <div class="form-actions">${filters}</div>
-
-                <h3>PROGRAMME</h3>
-                ${programmeCard(programme, ended, csrf)}
-
-                <h3>APPLICATIONS</h3>
+  return `${tabs("applications")}
+                <div class="form-actions">${filters}</div>
+                ${searchForm({ view: "applications", params: { status }, q, placeholder: "SEARCH NAME, ACCOUNT, GITHUB" })}
+                <p class="form-note">${total} application(s) matching. Showing at most ${size} per page.</p>
                 ${
                   applications.length
                     ? applications.map((a) => applicationCard(a, csrf)).join("")
-                    : `<p class="review-empty">Nothing is ${esc(FILTER_LABELS[status].toLowerCase())}.</p>`
+                    : `<p class="review-empty">Nothing matches that filter.</p>`
                 }
-
-                <h3>ACCESS</h3>
-                <p class="form-note">Accounts that hold, held, or lost an entitlement. Revoking stops downloads and the command line on the next request — it does not reach onto a machine that already has the software.</p>
-                ${
-                  access.length
-                    ? access.map((r) => accessCard(r, csrf)).join("")
-                    : `<p class="review-empty">Nobody holds access yet.</p>`
-                }
-
-                <h3>EMAIL</h3>
-                <p class="form-note">Queued and sent notifications. Bodies are not stored, so there is none here to leak.</p>
-                ${table(
-                  ["WHEN", "KIND", "TO", "STATUS", "ATTEMPTS", "LAST ERROR"],
-                  outbox.map((r) => [ago(r.created_at), r.kind, r.to_email, r.sent_at ? "sent" : r.status, r.attempts, r.last_error || "—"]),
-                )}
-
-                <h3>AUDIT</h3>
-                ${table(
-                  ["WHEN", "ACTOR", "ACTION", "TARGET", "BEFORE", "AFTER"],
-                  auditLog.map((r) => [ago(r.created_at), r.actor, r.action, r.target || "—", r.before || "—", r.after || "—"]),
-                )}
-
-                <h3>MEMBERS (READ-ONLY)</h3>
-                <p class="form-note">The membership-key view, unchanged. It is behind the admin token, not behind an account.</p>
-                ${await memberTables(db)}`,
-  });
+                ${pager({ view: "applications", params, page, pages, label: `${total} total` })}`;
 }
 
-/** The programme switch. Ending it is stated as what it does, because the
- *  consequence lands on people who are not in the room. */
-function programmeCard(programme, ended, csrf) {
-  return `<div class="review-card">
-                <div class="review-head"><span>EARLY ACCESS</span><span>${esc(String(programme.status || "active").toUpperCase())}</span></div>
+// --- activity ---------------------------------------------------------------
+
+async function activityView({ db, url }) {
+  const asked = String(url.searchParams.get("type") || "").toLowerCase();
+  const prefix = AUDIT_PREFIXES.includes(asked) ? asked : "";
+  const page = Math.max(1, Math.min(Number(url.searchParams.get("page")) || 1, 10_000));
+  const size = 50;
+  const total = await countAudit(db, { prefix });
+  const pages = Math.max(1, Math.ceil(total / size));
+  const actual = Math.min(page, pages);
+  const rows = await listAudit(db, { prefix, limit: size, offset: (actual - 1) * size });
+
+  const filters = ["", ...AUDIT_PREFIXES].map((key) => {
+    const label = key ? key.toUpperCase() : "ALL";
+    const cls = key === prefix ? "button button-primary button-small" : "button button-secondary button-small";
+    return `<a class="${cls}" href="${esc(href("activity", key ? { type: key } : {}))}">${esc(label)}</a>`;
+  }).join(" ");
+
+  return `${tabs("activity")}
+                <div class="form-actions">${filters}</div>
+                <p class="form-note">${total} entr${total === 1 ? "y" : "ies"}. Append-only: the dashboard can read this table but has no control that edits or deletes it, and neither does the action route. Credentials are never written here.</p>
+                ${table(
+                  ["WHEN", "ACTOR", "ACTION", "TARGET", "BEFORE", "AFTER"],
+                  rows.map((r) => [ago(r.created_at), r.actor, r.action, r.target || "—", r.before || "—", r.after || "—"]),
+                )}
+                ${pager({ view: "activity", params: prefix ? { type: prefix } : {}, page: actual, pages, label: `${total} total` })}`;
+}
+
+// --- users ------------------------------------------------------------------
+
+async function usersView({ db, url }) {
+  const q = String(url.searchParams.get("q") || "").slice(0, 80);
+  const askedPage = Math.max(1, Math.min(Number(url.searchParams.get("page")) || 1, 10_000));
+  const size = 50;
+  const total = await countUsers(db, { q });
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(askedPage, pages);
+  const users = await listUsers(db, { q, limit: size, offset: (page - 1) * size });
+
+  const rows = users.map((u) => [
+    {
+      html: `<a href="${esc(href("user", { id: u.id }))}">${esc(u.email)}</a><br><span class="form-note">${esc(u.name || "no name")} · ${esc(u.id)}</span>`,
+    },
+    u.entitlement_status ? { html: statusPill(u.entitlement_status) } : `<span class="form-note">no access row</span>`,
+    u.live_sessions,
+    u.live_cli,
+    u.email_verified ? "verified" : "unverified",
+    when(u.created_at),
+  ]);
+
+  return `${tabs("users")}
+                ${searchForm({ view: "users", q, placeholder: "SEARCH EMAIL, NAME OR ID" })}
+                <p class="form-note">${total} account(s). Access is a row in <code>entitlements</code>, not an application status; open an account to see both.</p>
+                ${table(["ACCOUNT", "ACCESS", "WEB SESSIONS", "CLI MACHINES", "EMAIL", "CREATED"], rows)}
+                ${pager({ view: "users", params: q ? { q } : {}, page, pages, label: `${total} total` })}`;
+}
+
+async function userView({ db, csrf, url }) {
+  const id = String(url.searchParams.get("id") || "");
+  const detail = await userAdminDetail(db, id);
+  if (!detail) {
+    return `${tabs("user")}<p class="review-empty">That account does not exist.</p>`;
+  }
+
+  const { user, entitlement, identities, application, sessions, cli, appEvents, entitlementEvents } = detail;
+  const userId = user.id;
+
+  const entitlementPanel = entitlement
+    ? `<div class="review-card">
+                <div class="review-head"><span>ENTITLEMENT</span><span>${esc(String(entitlement.status).toUpperCase())}</span></div>
                 <div class="review-body">
-                    <p class="form-note">${
-                      ended
-                        ? `Closed${programme.ended_at ? ` on ${esc(when(programme.ended_at))}` : ""}. Every account is refused at the download gate and at the command line, including accounts whose own access was still active.`
-                        : "Open. Accounts with an active entitlement can download and use the command line."
-                    }</p>
+                    <dl>
+                        ${QUESTION("GRANTED", entitlement.granted_at ? when(entitlement.granted_at) : "")}
+                        ${QUESTION("EXPIRES", entitlement.expires_at ? when(entitlement.expires_at) : "no individual expiry")}
+                        ${QUESTION("CHANGED", entitlement.changed_at ? `${when(entitlement.changed_at)} by ${entitlement.changed_by || "—"}` : "")}
+                        ${QUESTION("NOTE", entitlement.reason)}
+                    </dl>
                     <form class="feedback-form" method="post" action="/api/admin/action">
                         ${csrfField(csrf)}
-                        <input type="hidden" name="intent" value="programme">
+                        <input type="hidden" name="intent" value="access">
+                        <input type="hidden" name="user" value="${esc(userId)}">
                         <div class="review-actions">
+                            <div class="form-field"><label for="ur-ent">NOTE (OPTIONAL)</label><input id="ur-ent" name="reason" type="text" maxlength="400" autocomplete="off"></div>
                             ${
-                              ended
-                                ? `<button class="button button-primary button-small" type="submit" name="status" value="active">REOPEN</button>`
-                                : `<button class="button button-secondary button-small" type="submit" name="status" value="ended">END THE PROGRAMME</button>`
+                              entitlement.status === "active"
+                                ? `<button class="button button-primary button-small" type="submit" name="action" value="revoke">REVOKE</button>
+                            <button class="button button-secondary button-small" type="submit" name="action" value="suspend">SUSPEND</button>`
+                                : `<button class="button button-primary button-small" type="submit" name="action" value="grant">RESTORE</button>`
                             }
                         </div>
                     </form>
                 </div>
+            </div>`
+    : `<div class="review-card">
+                <div class="review-head"><span>ENTITLEMENT</span><span>NONE</span></div>
+                <div class="review-body">
+                    <p class="form-note">No entitlement row. This account cannot download or use the command line${application?.status === "approved" ? ", although its application says approved — that is an inconsistency worth fixing by granting access." : "."}</p>
+                    <form class="feedback-form" method="post" action="/api/admin/action">
+                        ${csrfField(csrf)}
+                        <input type="hidden" name="intent" value="access">
+                        <input type="hidden" name="user" value="${esc(userId)}">
+                        <div class="review-actions">
+                            <div class="form-field"><label for="ur-grant">NOTE (OPTIONAL)</label><input id="ur-grant" name="reason" type="text" maxlength="400" autocomplete="off"></div>
+                            <button class="button button-primary button-small" type="submit" name="action" value="grant">GRANT ACCESS</button>
+                        </div>
+                    </form>
+                </div>
             </div>`;
+
+  const sessionRows = sessions.map((s) => [
+    { html: `<code>${esc(s.token_hash.slice(0, 8))}…</code>` },
+    when(s.created_at),
+    when(s.last_seen_at),
+    when(s.expires_at),
+    {
+      html: `<form class="admin-inline-form" method="post" action="/api/admin/action">
+                        ${csrfField(csrf)}
+                        <input type="hidden" name="intent" value="session">
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="user" value="${esc(user.id)}">
+                        <input type="hidden" name="token" value="${esc(s.token_hash)}">
+                        <button class="button button-secondary button-small" type="submit">REVOKE</button>
+                    </form>`,
+    },
+  ]);
+
+  const cliRows = cli.map((c) => [
+    { html: `<code>${esc(c.token_prefix)}</code><br><span class="form-note">${esc(c.label || "machine")}</span>` },
+    when(c.created_at),
+    c.revoked_at ? { html: statusPill("revoked") } : when(c.last_used_at || c.created_at),
+    when(c.expires_at),
+    c.revoked_at
+      ? `<span class="form-note">${esc(c.revoked_reason || "revoked")}</span>`
+      : {
+          html: `<form class="admin-inline-form" method="post" action="/api/admin/action">
+                        ${csrfField(csrf)}
+                        <input type="hidden" name="intent" value="cli">
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="user" value="${esc(user.id)}">
+                        <input type="hidden" name="id" value="${esc(c.id)}">
+                        <button class="button button-secondary button-small" type="submit">REVOKE</button>
+                    </form>`,
+        },
+  ]);
+
+  const identityRows = identities.map((i) => [i.provider, i.email || "—", i.email_verified ? "verified" : "unverified", when(i.created_at), when(i.last_login_at)]);
+
+  return `${tabs("user")}
+                <p><a href="${esc(href("users"))}">← All accounts</a></p>
+                <div class="detail-grid">
+                    <div><span>ACCOUNT</span><strong>${esc(user.email)}<br>${esc(user.name || "no name")}</strong></div>
+                    <div><span>USER ID</span><strong><code>${esc(user.id)}</code></strong></div>
+                    <div><span>CREATED</span><strong>${esc(when(user.created_at))}</strong></div>
+                    <div><span>EMAIL</span><strong>${user.email_verified ? "verified" : "unverified"}</strong></div>
+                </div>
+
+                <h3>ACCESS</h3>
+                ${entitlementPanel}
+
+                <h3>APPLICATION</h3>
+                ${
+                  application
+                    ? table(
+                        ["STATUS", "SUBMITTED", "DECIDED", "DECIDED BY"],
+                        [[{ html: statusPill(application.status) }, when(application.submitted_at), when(application.decided_at), application.decided_by || "—"]],
+                      )
+                    : `<p class="form-note">No active application.</p>`
+                }
+                ${table(["WHEN", "FROM", "TO", "ACTOR", "NOTE"], appEvents.map((e) => [when(e.created_at), e.from_status || "—", e.to_status, e.actor, e.note || "—"]))}
+
+                <h3>SIGN-IN IDENTITIES</h3>
+                ${table(["PROVIDER", "EMAIL", "VERIFIED", "LINKED", "LAST LOGIN"], identityRows)}
+
+                <h3>WEBSITE SESSIONS</h3>
+                <p class="form-note">A session is removed from the database immediately. The browser is signed out on its next request. The value shown is the first eight characters of the stored SHA-256, which is not a credential.</p>
+                ${table(["SESSION", "CREATED", "LAST SEEN", "EXPIRES", ""], sessionRows)}
+
+                <h3>COMMAND-LINE MACHINES</h3>
+                <p class="form-note">Revoking ends the token on the server. The machine is refused on its next check-in, within the hour. Only the display prefix is stored or shown.</p>
+                ${table(["MACHINE", "ADDED", "LAST USED", "EXPIRES", ""], cliRows)}
+
+                <h3>ENTITLEMENT HISTORY</h3>
+                ${table(["WHEN", "FROM", "TO", "ACTOR", "NOTE"], entitlementEvents.map((e) => [when(e.created_at), e.from_status || "—", e.to_status, e.actor, e.reason || "—"]))}`;
 }
 
-/** The legacy member/machine tables, kept for the account-holding admin too —
- *  the token door is not always the one someone came through. */
+// --- devices / CLI ----------------------------------------------------------
+
+async function devicesView({ db, csrf, url }) {
+  const q = String(url.searchParams.get("q") || "").slice(0, 80);
+  const askedPage = Math.max(1, Math.min(Number(url.searchParams.get("page")) || 1, 10_000));
+  const size = 50;
+  const total = await countAllCliSessions(db, { q });
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(askedPage, pages);
+  const [sessions, devices] = await Promise.all([
+    listAllCliSessions(db, { q, limit: size, offset: (page - 1) * size }),
+    listDevices(db, { q, limit: 100 }),
+  ]);
+
+  const cliRows = sessions.map((c) => [
+    { html: `<a href="${esc(href("user", { id: c.user_id }))}">${esc(c.email)}</a>` },
+    { html: `<code>${esc(c.token_prefix)}</code><br><span class="form-note">${esc(c.label || "machine")}</span>` },
+    when(c.created_at),
+    c.revoked_at ? { html: statusPill("revoked") } : when(c.last_used_at || c.created_at),
+    when(c.expires_at),
+    c.revoked_at
+      ? `<span class="form-note">${esc(c.revoked_reason || "revoked")}</span>`
+      : {
+          html: `<form class="admin-inline-form" method="post" action="/api/admin/action">
+                        ${csrfField(csrf)}
+                        <input type="hidden" name="intent" value="cli">
+                        <input type="hidden" name="action" value="revoke">
+                        <input type="hidden" name="id" value="${esc(c.id)}">
+                        <button class="button button-secondary button-small" type="submit">REVOKE</button>
+                    </form>`,
+        },
+  ]);
+
+  const legacyRows = devices.map((d) => [
+    d.email || "—",
+    shortKey(d.key),
+    `${d.os || "?"} / ${d.arch || "?"}`,
+    d.version || "—",
+    d.id ? `${d.id.slice(0, 8)}…` : "—",
+    ago(d.last_seen),
+  ]);
+
+  const members = await db
+    .prepare(
+      `SELECT m.key, m.email, m.name, m.created_at, m.updated_at,
+              (SELECT COUNT(*) FROM devices d WHERE d.key = m.key) AS device_count
+         FROM members m ORDER BY m.updated_at DESC LIMIT 500`,
+    )
+    .all();
+
+  const memberRows = (members.results || []).map((r) => [shortKey(r.key), r.email || "—", r.name || "—", r.device_count, ago(r.updated_at)]);
+
+  return `${tabs("devices")}
+                <h3>COMMAND-LINE SESSIONS</h3>
+                ${searchForm({ view: "devices", q, placeholder: "SEARCH ACCOUNT, LABEL OR PREFIX" })}
+                <p class="form-note">${total} command-line session(s), live and revoked. Tokens are stored hashed; only the display prefix exists.</p>
+                ${table(["ACCOUNT", "MACHINE", "ADDED", "LAST USED", "EXPIRES", ""], cliRows)}
+                ${pager({ view: "devices", params: q ? { q } : {}, page, pages, label: `${total} total` })}
+
+                <h3>LEGACY DEVICES</h3>
+                <p class="form-note">The membership-key model. Read-only here: a key is all-or-nothing, so there is no per-machine switch to offer. Revoking a key is an environment change, not a dashboard action.</p>
+                ${table(["MEMBER", "KEY", "PLATFORM", "VERSION", "DEVICE", "LAST SEEN"], legacyRows)}
+
+                <h3>LEGACY MEMBERS</h3>
+                ${table(["KEY", "EMAIL", "NAME", "MACHINES", "LAST CONNECT"], memberRows)}`;
+}
+
+// --- security ---------------------------------------------------------------
+
+async function securityView({ env, db }) {
+  const [counts, config, schema] = await Promise.all([
+    overviewCounts(db),
+    configState(env),
+    schemaSnapshot(db),
+  ]);
+
+  const configRows = config.map(([name, state, detail]) => [
+    name,
+    { html: `<span class="status-pill ${state === "ok" ? "is-ok" : "is-warn"}">${state === "ok" ? "CONFIGURED" : "DEGRADED"}</span>` },
+    detail,
+  ]);
+
+  const hygiene = [
+    ["Administrators", counts.admins, counts.admins ? "" : "No account can open this desk."],
+    ["Unverified accounts", counts.unverified, counts.unverified ? "Signed in with a provider that did not assert a verified address." : ""],
+    ["Live website sessions", counts.live_sessions, ""],
+    ["Expired session rows", counts.expired_sessions, counts.expired_sessions ? "Removed lazily when the cookie is next presented." : ""],
+    ["Live CLI sessions", counts.live_cli, ""],
+    ["Queued notifications", counts.queued_mail, ""],
+    ["Failed notifications", counts.failed_mail, counts.failed_mail ? "A mail adapter is missing or a send failed; decisions are still recorded." : ""],
+    ["Refused privileged requests (24h)", counts.refused_day, counts.refused_day ? "Includes non-admin attempts, CSRF failures, invalid parameters and throttled attempts." : ""],
+    ["Audit entries (24h)", counts.audit_day, ""],
+  ];
+
+  const refused = await listAudit(db, { prefix: "admin", limit: 25, offset: 0 });
+
+  return `${tabs("security")}
+                <h3>CONFIGURATION</h3>
+                <p class="form-note">Presence only. No variable or secret value is read into this page, logged, or written to the database.</p>
+                ${table(["SETTING", "STATE", "DETAIL"], configRows)}
+
+                <h3>SCHEMA</h3>
+                ${
+                  schema.missing.length
+                    ? notice("error", `Missing required table(s): ${schema.missing.join(", ")}. Apply migrations/0000–0002 before this build serves traffic.`)
+                    : `<p class="form-note">All ${schema.required} required tables are present.</p>`
+                }
+
+                <h3>ACCESS AND HYGIENE</h3>
+                ${table(["MEASURE", "VALUE", "NOTE"], hygiene.map(([a, b, c]) => [a, b, c || "—"]))}
+
+                <h3>AUDIT INTEGRITY</h3>
+                <p class="form-note">The audit table is append-only. This dashboard renders it and offers no edit or delete; the action route only inserts. A failed privileged request is recorded with the account that made it and never with a credential.</p>
+                ${table(
+                  ["WHEN", "ACTOR", "ACTION", "TARGET"],
+                  refused.map((r) => [ago(r.created_at), r.actor, r.action, r.target || "—"]),
+                )}`;
+}
+
+// --- the token door's member tables ----------------------------------------
+
 async function memberTables(db) {
   const members = await db
     .prepare(
@@ -339,6 +755,68 @@ async function memberTables(db) {
   return `<p class="form-note">${memberRows.length} member(s), ${deviceRows.length} machine(s).</p>
                 ${table(["KEY", "EMAIL", "NAME", "MACHINES", "LAST CONNECT"], memberRows)}
                 ${table(["MEMBER", "KEY", "PLATFORM", "VERSION", "DEVICE", "LAST SEEN"], deviceRows)}`;
+}
+
+// --- dispatch ---------------------------------------------------------------
+
+async function review({ request, env, db, session }) {
+  const url = new URL(request.url);
+  const asked = url.searchParams.get("view") || "overview";
+  const view = [...VIEWS.map(([key]) => key), "user"].includes(asked) ? asked : "overview";
+
+  const csrf = await csrfFor(session.token);
+  const outcome = OUTCOMES[url.searchParams.get("msg") || ""];
+  const actor = session.user.email || session.user.user_id;
+
+  let body;
+  switch (view) {
+    case "applications":
+      body = await applicationsView({ db, csrf, url });
+      break;
+    case "activity":
+      body = await activityView({ db, url });
+      break;
+    case "users":
+      body = await usersView({ db, url });
+      break;
+    case "user":
+      body = await userView({ db, csrf, url });
+      break;
+    case "devices":
+      body = await devicesView({ db, csrf, url });
+      break;
+    case "security":
+      body = await securityView({ env, db });
+      break;
+    default:
+      body = await overviewView({ env, db, csrf, session });
+  }
+
+  const headings = {
+    overview: ["OPERATIONS", "AT A GLANCE."],
+    applications: ["WHO GETS", "IN."],
+    activity: ["WHAT WAS", "DONE."],
+    users: ["WHO IS", "HERE."],
+    user: ["ONE", "ACCOUNT."],
+    devices: ["WHERE IT", "RUNS."],
+    security: ["WHAT IS", "EXPOSED."],
+  };
+  const [heading, accent] = headings[view];
+
+  return betaPage({
+    title: "Admin",
+    kicker: "KR / ADMIN",
+    right: "ADMINS ONLY",
+    heading,
+    accent,
+    lede: `Signed in as ${actor}. Every action here is written to the audit log, and none of it is reversible without another entry.`,
+    notice: outcome ? notice(outcome[0], outcome[1]) : "",
+    session,
+    admin: true,
+    csrf,
+    wide: true,
+    body,
+  });
 }
 
 // --- the two doors ----------------------------------------------------------

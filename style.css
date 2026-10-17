@@ -351,6 +351,20 @@ body, body *, button, input, textarea, select { font-family: var(--pixel) !impor
 .admin-table th { background: var(--fg); color: var(--bg); font-size: .5rem; }
 .admin-table tbody tr:nth-child(even) { background: var(--paper); }
 
+.admin-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1.5rem; }
+.admin-search { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 1rem 0; }
+.admin-search input { min-width: min(100%, 260px); padding: .7rem .75rem; border: 2px solid var(--border); border-radius: 0; background: var(--bg); color: var(--fg); font: 1.1rem var(--body); }
+.admin-search input:focus { border-color: var(--accent); outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 2px; }
+.admin-inline-form { display: inline-block; }
+.admin-pager { margin: 1rem 0 2rem; }
+.admin-pager .form-note { margin: 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin: 0 0 1.5rem; }
+.stat { padding: .85rem 1rem; border: 2px solid var(--fg); background: var(--paper); }
+.stat span { display: block; margin-bottom: .5rem; color: var(--muted); font: .43rem var(--pixel); }
+.stat strong { display: block; font: 1.1rem var(--pixel); }
+.stat.is-warn { border-color: var(--high); }
+.stat.is-warn strong { color: var(--high); }
+
 /* The beta pages: /signin, /apply, /dashboard and the review queue. Same
    rules as the block above — classes only, because the CSP forbids inline
    styles, and no border-radius anywhere, because nothing else on this site

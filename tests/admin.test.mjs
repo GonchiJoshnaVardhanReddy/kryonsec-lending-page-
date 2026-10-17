@@ -128,7 +128,13 @@ test("a non-admin cannot decide anything, and cannot tell the endpoint exists", 
   // account was the one turned away.
   assert.equal(response.status, 404);
   assert.equal(applicationRow(db, applicant.applicationId).status, "pending");
-  assert.equal(db._raw.prepare("SELECT COUNT(*) AS n FROM admin_audit").get().n, 0);
+  // The refusal itself is recorded — a failed privileged attempt is exactly
+  // what an audit log is for — but no decision audit row exists, because no
+  // decision happened.
+  const audit = db._raw.prepare("SELECT actor, action FROM admin_audit").all();
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].actor, "other@example.com");
+  assert.equal(audit[0].action, "admin.denied");
 });
 
 test("an admin with a stale CSRF token is refused and changes nothing", async () => {

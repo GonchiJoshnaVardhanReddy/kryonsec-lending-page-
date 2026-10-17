@@ -178,27 +178,77 @@ export async function accessFor(db, userId) {
   return { ...base, entitled: true, status: "active", reason: "", expiresAt: entitlement.expires_at || null };
 }
 
+/** A search box value: one line, capped, and still just a value. */
+export function cleanSearch(value, max = 80) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/** Escape LIKE's own wildcards so "50%" searches for those characters rather
+ *  than for everything. The SQL below declares ESCAPE '\'. */
+const like = (q) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+const clampInt = (value, fallback, min, max) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+};
+
+const applicationSearch = (q) => ({
+  clause:
+    "(u.email LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR a.full_name LIKE ? ESCAPE '\\' OR a.contact_email LIKE ? ESCAPE '\\' OR a.github_username LIKE ? ESCAPE '\\')",
+  params: Array(5).fill(like(q)),
+});
+
 /** The admin queue. Newest first, because that is the order they are worked. */
-export async function listApplications(db, { status = "pending", limit = 100 } = {}) {
+export async function listApplications(db, { status = "pending", limit = 100, offset = 0, q = "" } = {}) {
   const capped = Math.min(Math.max(Number(limit) || 100, 1), 500);
-  const { results } = status === "all"
-    ? await db
-        .prepare(
-          `SELECT a.*, u.email AS account_email, u.name AS account_name
-             FROM applications a JOIN users u ON u.id = a.user_id
-            ORDER BY a.submitted_at DESC LIMIT ?`,
-        )
-        .bind(capped)
-        .all()
-    : await db
-        .prepare(
-          `SELECT a.*, u.email AS account_email, u.name AS account_name
-             FROM applications a JOIN users u ON u.id = a.user_id
-            WHERE a.status = ? ORDER BY a.submitted_at DESC LIMIT ?`,
-        )
-        .bind(status, capped)
-        .all();
+  const skip = clampInt(offset, 0, 0, 100_000);
+  const needle = cleanSearch(q);
+  const where = [];
+  const params = [];
+  if (status !== "all") {
+    where.push("a.status = ?");
+    params.push(status);
+  }
+  if (needle) {
+    const search = applicationSearch(needle);
+    where.push(search.clause);
+    params.push(...search.params);
+  }
+  const { results } = await db
+    .prepare(
+      `SELECT a.*, u.email AS account_email, u.name AS account_name
+         FROM applications a JOIN users u ON u.id = a.user_id
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY a.submitted_at DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(...params, capped, skip)
+    .all();
   return results || [];
+}
+
+/** The count behind the same filters, for an honest page count. */
+export async function countApplications(db, { status = "pending", q = "" } = {}) {
+  const needle = cleanSearch(q);
+  const where = [];
+  const params = [];
+  if (status !== "all") {
+    where.push("a.status = ?");
+    params.push(status);
+  }
+  if (needle) {
+    const search = applicationSearch(needle);
+    where.push(search.clause);
+    params.push(...search.params);
+  }
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM applications a JOIN users u ON u.id = a.user_id
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    )
+    .bind(...params)
+    .first();
+  return Number(row?.n || 0);
 }
 
 /** Accounts holding an entitlement, with the application that got them in. */
@@ -247,15 +297,270 @@ export async function listOutbox(db, { limit = 50 } = {}) {
 
 const RECENT_LIMIT = 50;
 
-export async function listAudit(db, { limit = RECENT_LIMIT } = {}) {
+/** Action families the audit view can filter by. A whitelist, not a prefix
+ *  taken from the query string — the value reaches SQL. */
+export const AUDIT_PREFIXES = ["application", "entitlement", "programme", "session", "cli_session", "admin"];
+
+const auditWhere = (prefix) => {
+  const p = String(prefix || "").toLowerCase();
+  return AUDIT_PREFIXES.includes(p) ? { clause: "WHERE action LIKE ? ESCAPE '\\'", params: [`${p}.%`] } : { clause: "", params: [] };
+};
+
+export async function listAudit(db, { limit = RECENT_LIMIT, offset = 0, prefix = "" } = {}) {
+  const where = auditWhere(prefix);
   const { results } = await db
     .prepare(
       `SELECT id, actor, action, target, before, after, created_at
-         FROM admin_audit ORDER BY created_at DESC LIMIT ?`,
+         FROM admin_audit ${where.clause} ORDER BY id DESC LIMIT ? OFFSET ?`,
     )
-    .bind(Math.min(Math.max(Number(limit) || RECENT_LIMIT, 1), 200))
+    .bind(...where.params, Math.min(Math.max(Number(limit) || RECENT_LIMIT, 1), 200), clampInt(offset, 0, 0, 100_000))
     .all();
   return results || [];
+}
+
+export async function countAudit(db, { prefix = "" } = {}) {
+  const where = auditWhere(prefix);
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM admin_audit ${where.clause}`)
+    .bind(...where.params)
+    .first();
+  return Number(row?.n || 0);
+}
+
+// --- dashboard: people, sessions, machines, health --------------------------
+
+/**
+ * Accounts, with the two facts an admin most often needs beside them: whether
+ * access is active and how many live credentials exist. Search is parameterised
+ * and wildcard-escaped, so a typed `%` is a character, not a match-all.
+ */
+export async function listUsers(db, { limit = 50, offset = 0, q = "" } = {}) {
+  const capped = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const skip = clampInt(offset, 0, 0, 100_000);
+  const needle = cleanSearch(q);
+  const after = needle
+    ? { clause: "WHERE (u.email LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.id LIKE ? ESCAPE '\\')", params: [like(needle), like(needle), like(needle)] }
+    : { clause: "", params: [] };
+  const now = nowIso();
+  const { results } = await db
+    .prepare(
+      `SELECT u.id, u.email, u.email_verified, u.name, u.created_at,
+              (SELECT e.status FROM entitlements e WHERE e.user_id = u.id) AS entitlement_status,
+              (SELECT COUNT(*) FROM sessions s
+                WHERE s.user_id = u.id AND s.expires_at > ?) AS live_sessions,
+              (SELECT COUNT(*) FROM cli_sessions c
+                WHERE c.user_id = u.id AND c.revoked_at IS NULL AND c.expires_at > ?) AS live_cli
+         FROM users u ${after.clause}
+        ORDER BY u.created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(now, now, ...after.params, capped, skip)
+    .all();
+  return results || [];
+}
+
+export async function countUsers(db, { q = "" } = {}) {
+  const needle = cleanSearch(q);
+  const row = needle
+    ? await db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM users u
+            WHERE (u.email LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.id LIKE ? ESCAPE '\\')`,
+        )
+        .bind(like(needle), like(needle), like(needle))
+        .first()
+    : await db.prepare("SELECT COUNT(*) AS n FROM users").first();
+  return Number(row?.n || 0);
+}
+
+export const USER_ID_RE = /^u_[0-9a-f]{32}$/;
+
+/** One account, everything an admin may see about it. No credentials: session
+ *  rows are read as hashes and rendered as a short prefix. */
+export async function userAdminDetail(db, userId) {
+  if (!USER_ID_RE.test(String(userId || ""))) return null;
+  const [user, entitlement, identities, application, sessions, cli, entitlementEvents] = await Promise.all([
+    getUser(db, userId),
+    getEntitlement(db, userId),
+    listIdentities(db, userId),
+    activeApplication(db, userId),
+    db
+      .prepare(
+        `SELECT token_hash, created_at, expires_at, last_seen_at
+           FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+      )
+      .bind(userId)
+      .all(),
+    db
+      .prepare(
+        `SELECT id, token_prefix, label, created_at, expires_at, last_used_at, revoked_at, revoked_reason
+           FROM cli_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+      )
+      .bind(userId)
+      .all(),
+    db
+      .prepare(
+        `SELECT from_status, to_status, actor, reason, created_at FROM entitlement_events
+          WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
+      )
+      .bind(userId)
+      .all(),
+  ]);
+
+  // Read after the group above, because it needs the application the group
+  // just found. Binding `application.id` inside the same `Promise.all` would
+  // read the binding while the destructuring that defines it was still in
+  // flight.
+  const appEvents = application
+    ? await db
+        .prepare(
+          `SELECT from_status, to_status, actor, note, created_at FROM application_events
+            WHERE application_id = ? ORDER BY created_at DESC LIMIT 20`,
+        )
+        .bind(application.id)
+        .all()
+    : { results: [] };
+
+  if (!user) return null;
+  return {
+    user,
+    entitlement,
+    identities: identities || [],
+    application,
+    sessions: sessions.results || [],
+    cli: cli.results || [],
+    appEvents: appEvents.results || [],
+    entitlementEvents: entitlementEvents.results || [],
+  };
+}
+
+/** Every signed-in command-line machine, across accounts. */
+export async function listAllCliSessions(db, { limit = 100, offset = 0, q = "" } = {}) {
+  const capped = Math.min(Math.max(Number(limit) || 100, 1), 200);
+  const skip = clampInt(offset, 0, 0, 100_000);
+  const needle = cleanSearch(q);
+  const after = needle
+    ? {
+        clause:
+          "WHERE (u.email LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR c.label LIKE ? ESCAPE '\\' OR c.token_prefix LIKE ? ESCAPE '\\')",
+        params: Array(4).fill(like(needle)),
+      }
+    : { clause: "", params: [] };
+  const { results } = await db
+    .prepare(
+      `SELECT c.id, c.token_prefix, c.label, c.created_at, c.expires_at, c.last_used_at,
+              c.revoked_at, c.revoked_reason, u.id AS user_id, u.email
+         FROM cli_sessions c JOIN users u ON u.id = c.user_id
+        ${after.clause}
+        ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(...after.params, capped, skip)
+    .all();
+  return results || [];
+}
+
+export async function countAllCliSessions(db, { q = "" } = {}) {
+  const needle = cleanSearch(q);
+  const row = needle
+    ? await db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM cli_sessions c JOIN users u ON u.id = c.user_id
+            WHERE (u.email LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR c.label LIKE ? ESCAPE '\\' OR c.token_prefix LIKE ? ESCAPE '\\')`,
+        )
+        .bind(...Array(4).fill(like(needle)))
+        .first()
+    : await db.prepare("SELECT COUNT(*) AS n FROM cli_sessions").first();
+  return Number(row?.n || 0);
+}
+
+/** The legacy membership machines. Read-only: the key model has no per-machine
+ *  revocation, and inventing one here would be a second answer to access. */
+export async function listDevices(db, { limit = 100, q = "" } = {}) {
+  const capped = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const needle = cleanSearch(q);
+  const after = needle
+    ? {
+        clause: "WHERE (d.key LIKE ? ESCAPE '\\' OR d.os LIKE ? ESCAPE '\\' OR m.email LIKE ? ESCAPE '\\')",
+        params: Array(3).fill(like(needle)),
+      }
+    : { clause: "", params: [] };
+  const { results } = await db
+    .prepare(
+      `SELECT d.id, d.key, d.os, d.arch, d.version, d.last_seen, m.email
+         FROM devices d LEFT JOIN members m ON m.key = d.key
+        ${after.clause}
+        ORDER BY d.last_seen DESC LIMIT ?`,
+    )
+    .bind(...after.params, capped)
+    .all();
+  return results || [];
+}
+
+/** Header numbers, one query rather than a dozen round trips. */
+export async function overviewCounts(db) {
+  const now = nowIso();
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM users) AS users,
+         (SELECT COUNT(*) FROM users WHERE email_verified = 0) AS unverified,
+         (SELECT COUNT(*) FROM sessions WHERE expires_at > ?) AS live_sessions,
+         (SELECT COUNT(*) FROM sessions WHERE expires_at <= ?) AS expired_sessions,
+         (SELECT COUNT(*) FROM cli_sessions WHERE revoked_at IS NULL AND expires_at > ?) AS live_cli,
+         (SELECT COUNT(*) FROM admins) AS admins,
+         (SELECT COUNT(*) FROM entitlements WHERE status = 'active') AS active_access,
+         (SELECT COUNT(*) FROM entitlements) AS entitlement_rows,
+         (SELECT COUNT(*) FROM applications WHERE status = 'pending') AS pending,
+         (SELECT COUNT(*) FROM applications) AS applications,
+         (SELECT COUNT(*) FROM devices) AS devices,
+         (SELECT COUNT(*) FROM members) AS members,
+         (SELECT COUNT(*) FROM email_outbox WHERE status = 'queued') AS queued_mail,
+         (SELECT COUNT(*) FROM email_outbox WHERE status = 'failed') AS failed_mail,
+         (SELECT COUNT(*) FROM admin_audit WHERE created_at > ?) AS audit_day,
+         (SELECT COUNT(*) FROM admin_audit
+           WHERE created_at > ?
+             AND action IN ('admin.denied','admin.csrf_refused','admin.invalid','admin.throttled')) AS refused_day`,
+    )
+    .bind(now, now, now, dayAgo, dayAgo)
+    .first();
+  return row || {};
+}
+
+/** Which tables the schema actually has. A missing one is a deployment fault,
+ *  not a rendering problem, so the security page says so plainly. */
+const REQUIRED_TABLES = [
+  "users", "identities", "sessions", "applications", "application_events",
+  "entitlements", "entitlement_events", "cli_auth", "cli_sessions",
+  "download_tokens", "admins", "admin_audit", "email_outbox", "beta_program",
+  "cli_login_codes", "members", "devices", "device_codes",
+];
+
+export async function schemaSnapshot(db) {
+  const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+  const names = new Set((results || []).map((r) => r.name));
+  const missing = REQUIRED_TABLES.filter((name) => !names.has(name));
+  return { required: REQUIRED_TABLES.length, missing };
+}
+
+/** Delete one website session, scoped to its owner. The audit row is written
+ *  whether or not a row moved, so a failed attempt is visible too. */
+export async function revokeWebsiteSession(db, { tokenHash, userId, actor }) {
+  if (!/^[0-9a-f]{64}$/.test(String(tokenHash || "")) || !USER_ID_RE.test(String(userId || ""))) {
+    return { ok: false, error: "That session no longer exists." };
+  }
+  const claim = await db
+    .prepare("DELETE FROM sessions WHERE token_hash = ? AND user_id = ?")
+    .bind(tokenHash, userId)
+    .run();
+  const revoked = Boolean(claim.meta && claim.meta.changes === 1);
+  await db
+    .prepare(
+      `INSERT INTO admin_audit (actor, action, target, before, after, created_at)
+       VALUES (?, ?, ?, NULL, ?, ?)`,
+    )
+    .bind(actor, revoked ? "session.revoked" : "session.revoke_missed", userId, JSON.stringify({ revoked }), nowIso())
+    .run();
+  return revoked ? { ok: true, userId } : { ok: false, error: "That session no longer exists." };
 }
 
 // --- writes -----------------------------------------------------------------
