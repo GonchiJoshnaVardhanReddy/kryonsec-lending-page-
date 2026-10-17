@@ -112,8 +112,11 @@ Scopes requested are `openid email` (Google) and `read:user user:email`
 someone's private code is not a thing authenticating them requires, and asking
 for it would be asking for more than the sign-in needs.
 
-For local work, add `http://localhost:8788/api/auth/<provider>/callback` as a
-second allowed callback in each app.
+For local work, add `http://localhost:8788/api/auth/<provider>/callback` as
+another allowed redirect URI. Google accepts several redirect URIs on one
+client. A **classic GitHub OAuth App accepts exactly one callback URL**, so
+local GitHub work needs a throwaway app unless the app is a GitHub App (which
+allows several callback URLs).
 
 ### Preview deployments
 
@@ -124,22 +127,35 @@ preview whose Preview environment has no `KRYONSEC_*_CLIENT_ID` /
 providers marked unavailable, exactly as an unconfigured production would.
 
 The callback URI is built from the request origin, so the provider has to
-accept the preview origin too. Either add
+accept the preview origin too:
 
 ```
 https://feat-beta-onboarding.kryonsec-landing.pages.dev/api/auth/github/callback
+https://feat-beta-onboarding.kryonsec-landing.pages.dev/api/auth/google/callback
 ```
 
-as a second callback in the existing GitHub app, or register a throwaway
-preview app and put its credentials in the Preview environment. Do not replace
-the production callback. Google has no such shortcut — it requires its own
-app, and the callback list has to include both origins before a preview can
-complete a Google sign-in.
+Google accepts several redirect URIs on one client, so add the preview URI to
+the existing Google client. A **classic GitHub OAuth App has exactly one
+callback URL**: do not replace the production one. Register a separate preview
+app and put its client id and encrypted secret in the Preview environment
+instead. (A GitHub App may hold several callback URLs and needs no second app.)
+Until a valid preview app exists for a provider, leave its preview variables
+unset — `/signin` will name that provider as unavailable rather than offering
+a link that fails at the provider.
 
 Set preview values under **Pages → Settings → Variables and Secrets →
 Preview**. Never put the production client secret into a public fork's
 preview; the preview environment is readable by anyone who can edit the
 project.
+
+This project has automatic preview deployments switched off
+(`preview_deployment_setting: "none"`), so pushing a branch does not publish
+it. Deploy the branch explicitly:
+
+```
+npx wrangler pages deploy . --project-name kryonsec-landing \
+  --branch feat/beta-onboarding --commit-dirty=true
+```
 
 ---
 
