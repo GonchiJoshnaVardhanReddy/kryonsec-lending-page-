@@ -42,6 +42,20 @@ test("the homepage primary navigation links to /signin and keeps its other links
   }
 });
 
+test("every public page offers the sign-in link in its primary navigation", () => {
+  for (const page of ["index.html", "feedback.html", "roadmap.html"]) {
+    const html = readFileSync(new URL(`../${page}`, import.meta.url), "utf8");
+    const nav = html.match(/<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/);
+    assert.ok(nav, `${page}: the primary navigation was not found`);
+
+    assert.match(
+      nav[1],
+      /<a class="nav-signin" href="\/signin">SIGN IN<\/a>/,
+      `${page}: the primary navigation has no sign-in link`,
+    );
+  }
+});
+
 // --- what the sign-in page offers ------------------------------------------
 
 test("both configured providers get working start links", async () => {
