@@ -6,10 +6,15 @@ working tree to kryonsec.in — and how to put it back.
 Nothing in this repository deploys itself. Every step below is a person
 running a command or clicking once in the dashboard, on purpose.
 
-> **Status: not deployed.** As of this writing the code is committed to the
-> `feat/beta-onboarding` branch and the migrations have been applied **locally
-> only**. Nothing has been pushed, and production D1 has not been touched. See
-> §9 for what is waiting on a decision.
+> **Status: preview only.** As verified on 2026-10-28, `feat/beta-onboarding`
+> is deployed as a preview (`42d764b`); production still serves `main` at
+> `f99136b`, which predates the beta code. The beta schema has already been
+> applied to the production D1 database by hand: every table, trigger, and
+> index from `0001_beta.sql` and `0002_cli_login.sql` is present, `beta_program`
+> is active, and there are no `users`, `admins`, or `cli_login_codes` rows yet.
+> There is **no** `d1_migrations` ledger — do not run `wrangler d1 migrations
+> apply` (see §3). GitHub OAuth is configured; Google OAuth is not. See §9 for
+> what is waiting on a decision.
 
 ---
 
@@ -42,7 +47,7 @@ script already published, keeps working exactly as it did.
 
 ## 3. Migrations
 
-Four files, applied in order. They are additive: nothing alters or drops an
+Three files, applied in order. They are additive: nothing alters or drops an
 existing table, which is what makes them safe to apply while members are using
 the site.
 
@@ -51,14 +56,28 @@ the site.
 npx wrangler d1 execute KRYONSEC_DB --local  --file migrations/0000_existing.sql
 npx wrangler d1 execute KRYONSEC_DB --local  --file migrations/0001_beta.sql
 npx wrangler d1 execute KRYONSEC_DB --local  --file migrations/0002_cli_login.sql
-
-# production — only when you have read §9
-npx wrangler d1 execute KRYONSEC_DB --remote --file migrations/0001_beta.sql
-npx wrangler d1 execute KRYONSEC_DB --remote --file migrations/0002_cli_login.sql
 ```
 
-`0000_existing.sql` is a no-op on production (`CREATE TABLE IF NOT EXISTS` for
-tables that are already there). Run it locally so a dev database matches.
+`0000_existing.sql` is a no-op on any database that already has the legacy
+tables (`CREATE TABLE IF NOT EXISTS`). Run it locally so a dev database
+matches.
+
+**Production is already migrated by hand.** The database `kryonsec-members`
+holds every object from `0001` and `0002`; `beta_program` is active; there are
+zero users and zero administrators. There is **no `d1_migrations` ledger** on
+it, so `wrangler d1 migrations apply` must not be used: it would try to run
+`0001_beta.sql` again, and `0001` is not idempotent — the first `CREATE TABLE`
+fails. Apply any future schema change by hand with
+`wrangler d1 execute KRYONSEC_DB --remote --file …`, in the same order. A
+genuinely fresh production database would take all three files this way,
+`0000` first.
+
+To confirm the production schema before deploying (read-only):
+
+```bash
+npx wrangler d1 execute KRYONSEC_DB --remote \
+  --command "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','cli_login_codes','cli_sessions')"
+```
 
 ### Order matters in one direction
 
@@ -68,7 +87,8 @@ branch every currently-working account sees. Deploy the code first and those
 accounts get a 500 instead of their dashboard.
 
 So the safe order is always: **migrate, then deploy.** Never the other way
-around.
+around. On production the tables already exist ahead of the code, so this
+constraint is already satisfied.
 
 The reverse is safe: an older deployment runs fine against the newer schema,
 because the migrations only add tables. That is what makes §7 possible.
@@ -86,16 +106,22 @@ never as a plain-text variable.
 |---|---|---|
 | `KRYONSEC_DB` | yes | D1 binding (`KRYONSEC_DB`). The beta paths fail closed without it. |
 | `KRYONSEC_KEYS` | yes | comma-separated membership-key allowlist. Unchanged. |
-| `KRYONSEC_GOOGLE_CLIENT_ID` | yes | Google OAuth client id |
-| `KRYONSEC_GOOGLE_CLIENT_SECRET` | yes, *secret* | Google OAuth client secret |
+| `KRYONSEC_GOOGLE_CLIENT_ID` | for Google sign-in | Google OAuth client id; leave unset to offer GitHub only |
+| `KRYONSEC_GOOGLE_CLIENT_SECRET` | for Google sign-in, *secret* | Google OAuth client secret |
 | `KRYONSEC_GITHUB_CLIENT_ID` | yes | GitHub OAuth client id |
 | `KRYONSEC_GITHUB_CLIENT_SECRET` | yes, *secret* | GitHub OAuth client secret |
-| `KRYONSEC_ADMIN_TOKEN` | yes, *secret* | review-desk token (KV `admin/token`) |
+| `KRYONSEC_ADMIN_TOKEN` | no, *secret* | legacy review-desk token; KV `admin/token` is the preferred home and already holds one |
 | `KRYONSEC_FEEDBACK` | yes | KV binding for the feedback form |
-| `KRYONSEC_REPO` | yes | `owner/name` the release lookup reads |
-| `KRYONSEC_GITHUB_TOKEN` | no, *secret* | raises the GitHub API rate limit for release lookups |
+| `KRYONSEC_REPO` | no | `owner/name` the release lookup reads; defaults to `GonchiJoshnaVardhanReddy/kryon-sec` |
+| `KRYONSEC_GITHUB_TOKEN` | yes, *secret* | fine-grained PAT with Contents: Read; both download endpoints answer 502 without it |
 | `KRYONSEC_EMAIL_PROVIDER` | no | leave unset: no adapter exists yet — see §9 |
 | `KRYONSEC_EMAIL_FROM` | no | the From: address, once a provider exists |
+
+As verified on 2026-10-28, production has the GitHub client id and encrypted
+secret, the GitHub PAT, `KRYONSEC_KEYS`, and the D1/KV bindings. Google's two
+variables are **not** set, so `/signin` names Google as unavailable and offers
+GitHub only. The beta works in that state; Google can be added later without a
+code change.
 
 ### OAuth app settings
 
@@ -164,7 +190,8 @@ npx wrangler pages deploy . --project-name kryonsec-landing \
 **There is no bootstrap route and there will not be one.** No form, no
 environment variable, and no first-run wizard creates an admin, because every
 one of those is something an outsider can reach. An admin is a row, inserted
-by a person with database access.
+by a person with database access. Production currently has zero admin rows, so
+nobody can open `/admin` until this is done once.
 
 1. Sign in on the site with the account that should be the administrator. It
    will land on the dashboard with no access. That is expected.
@@ -207,6 +234,10 @@ Or deploy the working tree directly, skipping git:
 npx wrangler pages deploy . --project-name kryonsec-landing
 ```
 
+`wrangler pages deploy .` uploads whatever is in the directory, including
+uncommitted and untracked files. Only run it from a clean checkout of the
+commit being released; otherwise use the git path.
+
 **Do this after the migrations, never before.** See §3.
 
 Pages must serve `functions/` — no framework preset, no build command, output
@@ -247,7 +278,9 @@ together. Membership keys are unaffected — they do not consult it.
 
 Run these in order. Each one failing names the step that was missed.
 
-1. `/signin` shows **Sign in with Google** and **Sign in with GitHub**.
+1. `/signin` shows **Sign in with GitHub** — and Google too, once its OAuth
+   app exists. Until then Google is named as unavailable rather than offered
+   as a dead link.
 2. Sign in with one of them. You land on `/dashboard`.
 3. A brand-new account sees "NOT APPLIED YET" and an **APPLY FOR ACCESS**
    button. It sees no install command and no machine list.
@@ -255,6 +288,13 @@ Run these in order. Each one failing names the step that was missed.
 5. As the administrator, open `/admin` and approve it. The account's dashboard
    changes to "YOU ARE IN" with an install command.
 6. On a Linux or WSL2 machine, run the command from the dashboard. It installs.
+
+   This uses the installers published at `/install.sh` and `/install.ps1`.
+   They are copies of the last CLI release and do **not** yet check
+   `X-Kryonsec-Wheel-SHA256`; the fixed installers are in the CLI working
+   tree. Publish them only after the server header is live, or the new
+   installers will refuse the download by design. See `kryonsec/RELEASING.md`.
+
 7. Run `kryonsec login` on that machine. It prints a link and a code.
 8. Open the link, approve the machine. The terminal picks it up by itself and
    prints the email and a token prefix — never the token.
@@ -280,17 +320,23 @@ toolchain beside Node).
 These are the only things left, and none of them can be done from this
 repository:
 
-1. **Google and GitHub OAuth apps.** Client ids and secrets, callback URLs as
-   in §4. Until they exist, `/signin` renders and every callback fails.
+1. **Google OAuth app.** GitHub is configured in both environments and the
+   beta works without Google; Google's client id and secret are not set
+   anywhere. Create the app with the callback URLs in §4, then add the two
+   variables to Production and Preview. Until then `/signin` offers GitHub
+   only.
 2. **An email provider and its API key.** `functions/_email.js` is a seam with
    exactly one working behaviour: log mode. With no provider configured,
    notification rows are marked sent and never delivered, so **applicants are
    not told anything** and must check the dashboard. Neither the subject lines
    nor the queue needs changing when a provider is chosen — one `switch` case
    in `send()` is the whole job.
-3. **Applying the migrations to production D1.** Per the work brief, this is
-   not something to do automatically. It is §3, run by hand, when you are
-   ready.
+3. **Deploying the beta code to production.** Production serves `main` at
+   `f99136b`, which predates the beta; `feat/beta-onboarding` at `42d764b` is
+   preview-only. The migrations are already applied (see §3), so only the code
+   deploy remains — §6, when approved. Do not re-run the migrations.
 4. **The first administrator.** §5. A person with database access, once.
 
-Until 1–4 are done the beta is not usable by anyone but you, locally.
+Until 3 and 4 are done the beta is not usable on production; 1 adds a second
+sign-in provider, and 2 only changes whether applicants are told about
+decisions.

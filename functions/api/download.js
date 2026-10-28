@@ -1,5 +1,5 @@
 /**
- * GET /api/download?key=KRYO-XXXX-XXXX-XXXX
+ * GET /api/download?os=linux
  *
  * The download gate for closed-source Kryonsec. install.sh and install.ps1
  * both call this with the member's key and pipe the response straight into
@@ -10,6 +10,10 @@
  *   bad key     -> 403 (script reports the key was refused)
  *   key missing -> 400
  *   upstream    -> 502 (script reports the site was unreachable)
+ *
+ * The membership key is accepted in X-Kryonsec-Key.  The old query parameter
+ * remains a compatibility path for older installers, but new installers never
+ * put the key in a URL.
  *
  * A Cloudflare Pages Function rather than a webhook service: it deploys with
  * the site, costs nothing at this volume, and the secrets below stay on
@@ -74,7 +78,10 @@ function reject(message, status) {
 }
 
 export async function onRequestGet({ request, env }) {
-  const key = (new URL(request.url).searchParams.get("key") || "")
+  const url = new URL(request.url);
+  const headerKey = request.headers.get("X-Kryonsec-Key") || "";
+  const queryKey = url.searchParams.get("key") || "";
+  const key = (headerKey || queryKey)
     .trim()
     .toUpperCase();
 
@@ -121,11 +128,18 @@ export async function onRequestGet({ request, env }) {
   });
   if (!assetRes.ok) return reject("could not fetch the wheel", 502);
 
-  return new Response(assetRes.body, {
+  const bytes = await assetRes.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const sha256 = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+
+  return new Response(bytes, {
     status: 200,
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${asset.name}"`,
+      "X-Kryonsec-Wheel-SHA256": sha256,
       // no-store: this response is gated by a key, and a shared cache holding
       // it would hand the wheel to the next caller regardless of their key.
       "Cache-Control": "no-store",

@@ -9,10 +9,27 @@ import { timingSafeEqual } from "./api/download.js";
 
 // --- responses --------------------------------------------------------------
 
+// `_headers` only decorates static asset responses; a Function response gets
+// none of it. These are the same baseline protections, set here because every
+// dynamic page and API response has to carry its own.
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'self'; object-src 'none'; " +
+  "frame-ancestors 'none'; script-src 'self'; " +
+  "style-src 'self' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com; img-src 'self' data:; " +
+  "connect-src 'self'; frame-src https://www.youtube.com; form-action 'self'";
+
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...SECURITY_HEADERS,
       "Content-Type": "application/json; charset=utf-8",
       // Every response here is tied to one member's key or one admin session.
       // A shared cache holding it would hand it to the next caller.
@@ -25,6 +42,8 @@ export function html(markup, status = 200) {
   return new Response(markup, {
     status,
     headers: {
+      ...SECURITY_HEADERS,
+      "Content-Security-Policy": CONTENT_SECURITY_POLICY,
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Robots-Tag": "noindex, nofollow",

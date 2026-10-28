@@ -58,15 +58,25 @@ export async function latestWheel(env) {
   });
   if (!assetRes.ok) return { ok: false, status: 502, error: "could not fetch the wheel" };
 
+  // The installer verifies this header before handing the bytes to pip.  Do
+  // not trust a mutable registry or an intermediary merely because HTTPS
+  // succeeded: hash the exact release asset that is being returned.
+  const bytes = await assetRes.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const sha256 = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+
   return {
     ok: true,
     // no-store: this body is gated by a credential, and a shared cache holding
     // it would hand the wheel to the next caller regardless of theirs.
-    response: new Response(assetRes.body, {
+    response: new Response(bytes, {
       status: 200,
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${asset.name}"`,
+        "X-Kryonsec-Wheel-SHA256": sha256,
         "Cache-Control": "no-store",
       },
     }),
