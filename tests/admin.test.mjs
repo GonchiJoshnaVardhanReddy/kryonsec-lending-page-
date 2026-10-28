@@ -61,18 +61,19 @@ const entitlementRow = (db, userId) => db._raw.prepare("SELECT * FROM entitlemen
 
 // --- the two doors ----------------------------------------------------------
 
-test("a signed-in account that is not an admin gets the token prompt", async () => {
+test("a signed-in account that is not an admin is refused outright", async () => {
   const db = testD1();
   const { cookie } = await signIn(db);
 
   const response = await admin({ request: req(`${SITE}/admin`, { cookie }), env: ENV(db) });
   const body = await response.text();
 
-  assert.equal(response.status, 200);
-  // The prompt is the tell, and the absence of the queue is the substance:
-  // a non-admin must not be one missing `<a>` away from the review desk.
-  assert.match(body, /ADMIN TOKEN/);
+  assert.equal(response.status, 403);
+  // No token prompt and no queue: a non-admin is refused, not invited to try
+  // another credential.
+  assert.doesNotMatch(body, /ADMIN TOKEN/);
   assert.doesNotMatch(body, /intent" value="decide"/);
+  assert.match(body, /NOT AN/);
 });
 
 test("an admin sees the queue, the programme switch and the audit log", async () => {
@@ -92,15 +93,14 @@ test("an admin sees the queue, the programme switch and the audit log", async ()
 });
 
 test("no session at all is sent to sign in, not shown the desk", async () => {
-  const db = testD1();
   const response = await getAdmin("");
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /ADMIN TOKEN/);
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("Location"), "/signin?next=%2Fadmin");
 });
 
 // --- the guard on writes ----------------------------------------------------
 
-test("a POST with no session goes to sign-in rather than being honoured", async () => {
+test("a POST with no session is refused as an API request rather than honoured", async () => {
   const db = testD1();
   const { applicationId } = await pending(db);
 
@@ -109,12 +109,11 @@ test("a POST with no session goes to sign-in rather than being honoured", async 
     env: ENV(db),
   });
 
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("Location"), "/signin?next=%2Fadmin");
+  assert.equal(response.status, 401);
   assert.equal(applicationRow(db, applicationId).status, "pending");
 });
 
-test("a non-admin cannot decide anything, and cannot tell the endpoint exists", async () => {
+test("a non-admin cannot decide anything and is answered with 403", async () => {
   const db = testD1();
   const applicant = await pending(db);
   const { cookie, csrf } = await signIn(db, { id: "u_other", email: "other@example.com" });
@@ -124,9 +123,7 @@ test("a non-admin cannot decide anything, and cannot tell the endpoint exists", 
     env: ENV(db),
   });
 
-  // 404 rather than 403: a 403 confirms the endpoint is real and that this
-  // account was the one turned away.
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 403);
   assert.equal(applicationRow(db, applicant.applicationId).status, "pending");
   // The refusal itself is recorded — a failed privileged attempt is exactly
   // what an audit log is for — but no decision audit row exists, because no

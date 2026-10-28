@@ -6,14 +6,17 @@
  *   - a signed-in account listed in `admins`. Authorisation is a row in a
  *     table, checked on every request. Nothing is inferred from an email
  *     address, and there is no way to become an admin by filling in a form.
- *   - the KRYONSEC_ADMIN_TOKEN, which predates accounts and still opens the
- *     read-only member view. Left exactly as it was so that what works today
- *     keeps working.
+ *   - POST /admin with the KRYONSEC_ADMIN_TOKEN (or KV `admin/token`), which
+ *     predates accounts and still answers with the read-only member view. It
+ *     is kept for operator tooling that already posts to it, is unreachable
+ *     by GET, cannot open the dashboard and cannot change anything.
  *
  * The token door is a POST and the dashboard is a GET, which is the right way
  * round: a token in a query string lands in the browser history, the Referer,
  * and any proxy log, and the token has no expiry. The session cookie that opens
- * the dashboard is HttpOnly, SameSite, and expires.
+ * the dashboard is HttpOnly, SameSite, and expires. There is no token form on
+ * the site: an anonymous GET is sent to sign in, and a signed-in account
+ * without an `admins` row gets 403.
  *
  * Every mutation lives in `api/admin/action.js` rather than here, because the
  * guard those actions need — session, then `admins`, then CSRF — is a single
@@ -30,7 +33,7 @@
 
 import { csrfFor, currentSession, isAdminUser } from "./_auth.js";
 import { betaPage, csrfField, notice, statusPill, when } from "./_pages.js";
-import { esc, isAdmin, page } from "./_shared.js";
+import { esc, isAdmin, page, redirect } from "./_shared.js";
 import {
   AUDIT_PREFIXES,
   countAllCliSessions,
@@ -86,17 +89,41 @@ const OUTCOMES = {
   missing: ["error", "That record no longer exists."],
 };
 
-function prompt(message) {
-  const notice = message
-    ? `<p class="form-static-note" role="alert">${esc(message)}</p>`
-    : "";
-  return `                <div class="section-bar"><span>KR / ADMIN</span><span>MEMBERS</span></div>
-                <h2 id="admin-title">WHO IS<br><em>CONNECTED.</em></h2>
-                ${notice}
-                <form class="feedback-form" method="post" action="/admin">
-                    <div class="form-field form-field-full"><label for="admin-token">ADMIN TOKEN *</label><input id="admin-token" name="token" type="password" autocomplete="off" required></div>
-                    <div class="form-actions"><button class="button button-primary" type="submit">OPEN <span aria-hidden="true">↗</span></button></div>
-                </form>`;
+/** The legacy token door's only outward face. No input, no hint that a token
+ *  can be entered here in a browser — the form that used to do that is gone.
+ *  A caller posting the token directly still gets the read-only member tables,
+ *  which is documented in DEPLOYING-BETA.md. */
+function legacyNotice(message) {
+  return page(
+    "Admin",
+    `                <div class="section-bar"><span>KR / ADMIN</span><span>LEGACY</span></div>
+                <h2 id="admin-title">TOKEN ACCESS<br><em>IS READ-ONLY.</em></h2>
+                ${message ? `<p class="form-static-note" role="alert">${esc(message)}</p>` : ""}
+                <p class="form-note">Sign in with an account that holds an administrator row to use the dashboard.</p>`,
+  );
+}
+
+/** A signed-in account without an `admins` row. 403 rather than a sign-in
+ *  redirect: the person is already signed in, and signing in again would
+ *  produce the same answer. The page carries their identity and a way out. */
+function notAdmin({ session, csrf }) {
+  const actor = session.user.email || session.user.user_id;
+  return betaPage({
+    title: "Admin",
+    kicker: "KR / ADMIN",
+    right: "RESTRICTED",
+    heading: "NOT AN",
+    accent: "ADMINISTRATOR.",
+    lede: `Signed in as ${actor}. This account is not on the administrator list.`,
+    notice: notice(
+      "error",
+      "Administrator access is a row in the admins table. Signing in does not grant it, and no form on this site can.",
+    ),
+    session,
+    admin: false,
+    csrf,
+    status: 403,
+  });
 }
 
 function ago(iso) {
@@ -823,33 +850,36 @@ async function review({ request, env, db, session }) {
 
 export async function onRequestGet({ request, env }) {
   const db = env.KRYONSEC_DB;
-  if (db) {
-    const session = await currentSession(db, request);
-    if (session && (await isAdminUser(db, session.user.user_id))) {
-      return review({ request, env, db, session });
-    }
+  if (!db) return redirect("/signin?next=%2Fadmin");
+
+  const session = await currentSession(db, request);
+  if (!session) return redirect("/signin?next=%2Fadmin");
+
+  if (!(await isAdminUser(db, session.user.user_id))) {
+    return notAdmin({ session, csrf: await csrfFor(session.token) });
   }
-  return page("Admin", prompt(""));
+
+  return review({ request, env, db, session });
 }
 
 export async function onRequestPost({ request, env }) {
   const expected = await adminToken(env);
   if (!expected) {
-    return page("Admin", prompt("No admin token is configured yet (KV key admin/token)."));
+    return legacyNotice("No admin token is configured yet (KV key admin/token).");
   }
 
   let form;
   try {
     form = await request.formData();
   } catch {
-    return page("Admin", prompt("Bad submission."));
+    return legacyNotice("Bad submission.");
   }
   if (!isAdmin(form.get("token"), expected)) {
-    return page("Admin", prompt("That token is not right."));
+    return legacyNotice("That token is not right.");
   }
 
   const db = env.KRYONSEC_DB;
-  if (!db) return page("Admin", prompt("The database is not bound to this project."));
+  if (!db) return legacyNotice("The database is not bound to this project.");
 
   return page(
     "Admin",

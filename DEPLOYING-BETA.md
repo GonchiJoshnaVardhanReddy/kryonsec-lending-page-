@@ -189,34 +189,116 @@ npx wrangler pages deploy . --project-name kryonsec-landing \
 
 **There is no bootstrap route and there will not be one.** No form, no
 environment variable, and no first-run wizard creates an admin, because every
-one of those is something an outsider can reach. An admin is a row, inserted
-by a person with database access. Production currently has zero admin rows, so
-nobody can open `/admin` until this is done once.
+one of those is something an outsider can reach. An admin is a row in `admins`,
+inserted by a person with database access. Production currently has zero admin
+rows, so nobody can open `/admin` until this is done once.
 
-1. Sign in on the site with the account that should be the administrator. It
-   will land on the dashboard with no access. That is expected.
-2. Find the user id:
+This is a production write. Do it only with explicit owner approval, outside a
+deploy, and never as part of a code release. The steps below are the approved
+shape of that operation; they are not authorisation to run it.
+
+1. **Verify the operator can sign in.** Sign in through `/signin` with the
+   intended account and confirm `/dashboard` loads. The account is not an
+   administrator yet, so `/admin` will answer **403**. That is the correct
+   pre-insert state.
+
+2. **Identify the exact user id.** Match on the full email; do not pick a
+   recent row by eye, and do not use a wildcard:
 
    ```bash
    npx wrangler d1 execute KRYONSEC_DB --remote \
-     --command "SELECT id, email FROM users ORDER BY created_at DESC LIMIT 5"
+     --command "SELECT id, email, email_verified FROM users WHERE email = 'you@example.com'"
    ```
 
-3. Insert the row:
+   Require exactly one row, the expected email, and `email_verified = 1`.
+   The `id` is an internal `u_` id; nothing the browser sends is trusted in
+   its place.
+
+3. **Back up the database first.** The export contains member emails, session
+   hashes and key hashes. Keep it outside the repository and somewhere
+   access-restricted; do not attach it to a ticket or commit it.
+
+   ```bash
+   npx wrangler d1 export KRYONSEC_DB --remote \
+     --output=/secure/path/kryonsec-before-first-admin-$(date +%F).sql
+   ls -l /secure/path/kryonsec-before-first-admin-*.sql
+   ```
+
+   Confirm the file exists and is not empty before continuing.
+
+4. **Verify the schema and the current count.** Both must be read-only:
+
+   ```bash
+   npx wrangler d1 execute KRYONSEC_DB --remote --command "PRAGMA table_info(admins)"
+   npx wrangler d1 execute KRYONSEC_DB --remote --command "SELECT COUNT(*) AS admins FROM admins"
+   ```
+
+   The table must have `user_id` (primary key), `email`, `granted_at` and
+   `granted_by`. The count should be `0`; if it is not, stop — someone else has
+   already granted an administrator, and this procedure does not apply.
+
+5. **Insert only the verified account, with an audit trail.** Replace both
+   `u_...` occurrences with the id from step 2 and the email with the exact
+   address. `granted_by` is `'owner-runbook'` for this one row; every later
+   grant names the acting administrator.
+
+   ```bash
+   npx wrangler d1 execute KRYONSEC_DB --remote --command "
+   INSERT INTO admins (user_id, email, granted_at, granted_by)
+   VALUES ('u_...', 'you@example.com', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'owner-runbook');
+   INSERT INTO admin_audit (actor, action, target, before, after, created_at)
+   VALUES ('owner-runbook', 'admin.granted', 'u_...', NULL, 'owner-runbook', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+   "
+   ```
+
+   Then read both rows back and check the id, email and audit target match
+   exactly:
 
    ```bash
    npx wrangler d1 execute KRYONSEC_DB --remote \
-     --command "INSERT INTO admins (user_id, email, granted_at, granted_by) \
-                VALUES ('u_...', 'you@example.com', datetime('now'), 'bootstrap')"
+     --command "SELECT user_id, email, granted_by FROM admins"
+   npx wrangler d1 execute KRYONSEC_DB --remote \
+     --command "SELECT actor, action, target FROM admin_audit ORDER BY id DESC LIMIT 1"
    ```
 
-   `granted_by` is `'bootstrap'` for this one row and the acting admin's id for
-   every grant after it, so the audit trail names its own origin.
+6. **Verify the administrator can open the desk.** Reload `/admin` in the
+   signed-in browser. It must answer **200** with the dashboard, the operator's
+   email in the header/lede, and a **SIGN OUT** control. No token is entered.
 
-4. Reload `/admin`. The review desk appears.
+7. **Verify a normal account is still denied.** Sign in as a second,
+   non-administrator account in a private window and open `/admin`. It must
+   answer **403**, with no tabs, tables or review controls. A direct
+   `POST /api/admin/action` from that account must answer **403** and leave the
+   database unchanged.
 
-Revoking an admin is deleting that row. `admin_audit` keeps the record of what
-they did, and deleting the row does not erase it.
+8. **Roll back by deleting the row.** `DELETE FROM admins WHERE user_id = 'u_...'`.
+   The account is refused on its next request. `admin_audit` keeps the record;
+   deleting the row does not erase it.
+
+### The legacy token door
+
+`KRYONSEC_ADMIN_TOKEN`, or KV key `admin/token` when that variable is unset,
+still authorises **`POST /admin`** with `token=<value>` and returns the
+read-only legacy members and devices tables. It exists only for operator
+tooling that already posts there.
+
+- It cannot open the account dashboard, cannot mutate anything, and is not
+  reachable from a form on the site — the token-entry page has been removed.
+- A `GET /admin` never accepts a token: anonymous visitors are redirected to
+  `/signin`, and signed-in non-administrators get 403.
+- The token is never rendered, logged, or placed in a URL by the site. Do not
+  put it in a query string. If you invoke the endpoint by hand, read it from an
+  environment variable rather than typing it, so it does not land in shell
+  history:
+
+  ```bash
+  curl -sS https://kryonsec.in/admin \
+    --data-urlencode "token=${KRYONSEC_ADMIN_TOKEN:?set it in this shell}"
+  ```
+
+- Do not delete or rotate the secret or KV entry as part of a code change.
+  Retire it only after the tooling that uses it is gone, and treat that as a
+  separate, approved environment change.
 
 ---
 

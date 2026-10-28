@@ -53,7 +53,8 @@ reads a private repository is requested.
 | `/signin` | GET | none | redirects to the dashboard if already signed in |
 | `/apply` | GET | session | the form; the route is not hidden, the POST is what authorises |
 | `/dashboard` | GET | session | one page, one state, chosen by `accessFor` |
-| `/admin` | GET | session + `admins` row | the review desk |
+| `/admin` | GET | session + `admins` row | the review desk. No session → 303 to `/signin?next=%2Fadmin`; signed-in non-admin → 403 |
+| `/admin` | POST | legacy token | read-only legacy members/devices; no form on the site, cannot open the dashboard or mutate. See `DEPLOYING-BETA.md` §5 |
 | `/beta/device` | GET | session | where a `kryonsec login` code is approved |
 | `/logout` | POST | session + CSRF | POST only: a GET that signs out is revocable by an `<img>` tag |
 
@@ -62,7 +63,7 @@ reads a private repository is requested.
 | route | method | auth | body → answer |
 |---|---|---|---|
 | `/api/apply` | POST | session + CSRF | the form → 303 to `/dashboard`. One active application per identity, enforced by a partial unique index |
-| `/api/admin/action` | POST | session + `admins` + CSRF | `intent` + `back` → 303 to `/admin?status=…&msg=…` |
+| `/api/admin/action` | POST | session + `admins` + CSRF | `intent` + `back` → 303 to `/admin?status=…&msg=…`. No session → 401; signed-in non-admin → 403; bad CSRF/origin → 403 |
 
 Both are guarded `UPDATE … WHERE`, and the affected row count is the answer:
 1 means you did it, 0 means someone else already had.

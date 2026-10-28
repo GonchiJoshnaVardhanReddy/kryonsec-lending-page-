@@ -11,9 +11,12 @@
  * still sends the cookie on a top-level form POST from another site, which is
  * exactly the shape of an attack that makes an admin revoke the wrong account.
  *
- * Failures are recorded too. A refused non-admin attempt, a stale CSRF token,
- * and an unrecognised decision each leave an `admin.*` row naming the account
- * and the attempted action — never a token, a cookie, or a provider response.
+ * This is an API, so its refusals are statuses rather than pages: 401 with no
+ * session, 403 for a signed-in account without an `admins` row, 403 for a
+ * failed CSRF check. Failures are recorded too. A refused non-admin attempt, a
+ * stale CSRF token, and an unrecognised decision each leave an `admin.*` row
+ * naming the account and the attempted action — never a token, a cookie, or a
+ * provider response.
  * Repeated failures are throttled per account before a row is written, so the
  * log cannot be grown without bound by one caller.
  *
@@ -26,7 +29,7 @@
 
 import { audit, checkCsrf, currentSession, isAdminUser } from "../../_auth.js";
 import { revokeCliSession } from "../../_cli.js";
-import { redirect } from "../../_shared.js";
+import { json, redirect } from "../../_shared.js";
 import {
   decideApplication,
   grantEntitlement,
@@ -112,7 +115,7 @@ export async function onRequestPost({ request, env }) {
   if (!db) return new Response("No database.\n", { status: 500 });
 
   const session = await currentSession(db, request);
-  if (!session) return redirect("/signin?next=%2Fadmin");
+  if (!session) return json({ error: "Sign in required." }, 401);
 
   const form = await request.formData().catch(() => null);
   if (!form) return new Response("Bad submission.\n", { status: 400 });
@@ -122,13 +125,12 @@ export async function onRequestPost({ request, env }) {
   const actor = session.user.email || session.user.user_id;
 
   if (!(await isAdminUser(db, session.user.user_id))) {
-    // Not an admin. The same refusal whether the account exists or not — an
-    // admin-only endpoint that answers differently for a real and a fake
-    // account is a way to enumerate accounts. The attempt is recorded against
-    // the signed-in user id, not against any credential.
+    // Not an admin. The attempt is recorded against the signed-in account,
+    // never against a credential, and the answer is the same whether the
+    // account exists elsewhere or not.
     if ((await recentFailures(db, actor)) >= FAIL_LIMIT) return tooMany();
     await logFailure(db, { actor, action: "admin.denied", target: intentWord(form.get("intent")) });
-    return new Response("Not found.\n", { status: 404 });
+    return json({ error: "Administrator access required." }, 403);
   }
 
   // `checkCsrf` answers with the reason it refused, or "" — so the test is

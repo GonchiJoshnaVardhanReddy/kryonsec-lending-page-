@@ -4,8 +4,9 @@
 //
 // The properties this file is built around:
 //
-//   - every view is behind the same check — an anonymous visitor and a
-//     signed-in non-admin both get the token prompt, never a table;
+//   - every view is behind the same check — an anonymous visitor is sent to
+//     sign in, a signed-in non-admin is refused with 403, and neither sees a
+//     table;
 //   - search text is a value, not SQL, and `%` is a character;
 //   - a session or CLI token can be revoked by an administrator, and only
 //     for the account named; a tampered id matches nothing;
@@ -68,26 +69,26 @@ async function applicant(db, { id = uid(1), email = "ada@example.com" } = {}) {
 
 // --- every view, same guard -------------------------------------------------
 
-test("every view shows the token prompt to an anonymous visitor", async () => {
+test("every view sends an anonymous visitor to sign in", async () => {
   const db = testD1();
   await applicant(db);
   for (const view of VIEWS) {
     const response = await page(db, "", `?view=${view}`);
-    const html = await body(response);
-    assert.equal(response.status, 200, view);
-    assert.match(html, /ADMIN TOKEN/, view);
-    assert.doesNotMatch(html, /class="admin-tabs"/, view);
-    assert.doesNotMatch(html, /class="stat-grid"/, view);
+    assert.equal(response.status, 303, view);
+    assert.equal(response.headers.get("Location"), "/signin?next=%2Fadmin", view);
+    assert.doesNotMatch(await body(response), /class="admin-tabs"/, view);
   }
 });
 
-test("every view shows the token prompt to a signed-in non-admin", async () => {
+test("every view refuses a signed-in non-admin with 403", async () => {
   const db = testD1();
   const other = await signIn(db, { id: uid(2), email: "other@example.com" });
   await applicant(db);
   for (const view of VIEWS) {
-    const html = await body(await page(db, other.cookie, `?view=${view}`));
-    assert.match(html, /ADMIN TOKEN/, view);
+    const response = await page(db, other.cookie, `?view=${view}`);
+    const html = await body(response);
+    assert.equal(response.status, 403, view);
+    assert.doesNotMatch(html, /class="admin-tabs"/, view);
     assert.doesNotMatch(html, /ada@example\.com/, view);
   }
 });
@@ -103,8 +104,7 @@ test("the new revocation intents refuse an anonymous caller before touching a ro
     { intent: "cli", action: "revoke", id: cliId },
   ]) {
     const response = await action({ request: post("", fields), env: env(db) });
-    assert.equal(response.status, 303);
-    assert.equal(response.headers.get("Location"), "/signin?next=%2Fadmin");
+    assert.equal(response.status, 401);
   }
 
   assert.equal(row(db, "SELECT COUNT(*) AS n FROM sessions").n, 1);
