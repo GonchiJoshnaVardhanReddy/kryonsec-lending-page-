@@ -68,3 +68,86 @@ test("the verdict is never cached", async () => {
   // A cached verdict would outlive a revocation for everyone behind the cache.
   assert.equal(response.headers.get("Cache-Control"), "no-store");
 });
+
+// ---------------------------------------------------------------------------
+// The beta list.
+//
+// Purple Team needs two things from this endpoint: a verdict the app can cache
+// and an address to record as the machine's owner. A membership key supplies
+// neither address — the member claims one by browser — so a beta tester with
+// only a key would read "run `kryonsec connect` first" forever. The server
+// answers a beta key with a shared address instead, and revoking it stays a
+// one-line edit to a secret rather than a client release.
+// ---------------------------------------------------------------------------
+
+const BETA = "KRYO-BETA-BETA-BETA";
+
+async function ask(env, key) {
+  const response = await onRequestGet({
+    request: new Request(
+      "https://kryonsec.in/api/license/verify",
+      { headers: { "X-Kryonsec-Key": key } },
+    ),
+    env,
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("a beta key is vouched for by the server", async () => {
+  const { status, body } = await ask({ KRYONSEC_BETA_KEYS: BETA }, BETA);
+  assert.equal(status, 200);
+  assert.equal(body.valid, true);
+  assert.equal(body.member, "beta@kryonsec.in");
+});
+
+test("a beta key works with no membership allowlist at all", async () => {
+  // The state production is actually in when the beta list is the only one
+  // filled in: a missing KRYONSEC_KEYS must not turn the beta door shut.
+  const { body } = await ask({ KRYONSEC_BETA_KEYS: BETA }, BETA);
+  assert.equal(body.valid, true);
+});
+
+test("a paid membership key carries no identity", async () => {
+  // Absent, not empty: the CLI only adopts an address it does not already
+  // have, and a blank here would overwrite a member's claimed email.
+  const { body } = await ask({ KRYONSEC_KEYS: KEYS }, GOOD);
+  assert.equal(body.valid, true);
+  assert.equal("member" in body, false);
+});
+
+test("a membership key keeps claiming even while a beta list is live", async () => {
+  const { body } = await ask(
+    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA },
+    GOOD,
+  );
+  assert.equal(body.valid, true);
+  assert.equal("member" in body, false);
+});
+
+test("a key on both lists answers with the identity", async () => {
+  // The order is the product decision: one credential a beta tester types once
+  // and both modes work. A membership-only key still answers with no identity,
+  // so the claim step in the browser stays what names a paid member.
+  const { status, body } = await ask(
+    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: GOOD },
+    GOOD,
+  );
+  assert.equal(status, 200);
+  assert.equal(body.valid, true);
+  assert.equal(body.member, "beta@kryonsec.in");
+});
+
+test("a key on neither list is refused with 200", async () => {
+  const { status, body } = await ask(
+    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA },
+    "KRYO-3333-3333-3333",
+  );
+  assert.equal(status, 200);
+  assert.equal(body.valid, false);
+  assert.ok(body.reason);
+});
+
+test("an unset beta list changes nothing for a membership key", async () => {
+  const { body } = await ask({ KRYONSEC_KEYS: KEYS }, GOOD);
+  assert.equal(body.valid, true);
+});
