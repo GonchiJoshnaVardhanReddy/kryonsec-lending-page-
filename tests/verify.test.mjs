@@ -16,6 +16,8 @@ import { makeUser, testD1 } from "./helpers/d1.mjs";
 
 const GOOD = "KRYO-AB2C-DE3F-GH4J";
 const KEYS = `${GOOD},KRYO-2222-2222-2222`;
+const BETA = "KRYO-BETA-BETA-BETA";
+const BETA_KEYS = `${BETA},KRYO-7777-7777-7777`;
 
 async function verify(key, keys = KEYS) {
   const url = key === null
@@ -162,6 +164,51 @@ test("with no database bound, a token fails closed rather than open", async () =
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).valid, false);
+});
+
+test("a beta key is vouched for by the server", async () => {
+  // The point of the beta allowlist: the CLI gate still requires an identity,
+  // but a beta key has no browser claim to produce one, so this endpoint names
+  // it. Revoking a beta key is then an edit to a secret, not a client release.
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${BETA}`),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.valid, true);
+  assert.equal(body.member, "beta@kryonsec.in");
+});
+
+test("a beta key works with no membership allowlist at all", async () => {
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${BETA}`),
+    env: { KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  assert.equal((await response.json()).valid, true);
+});
+
+test("a paid membership key carries no identity", async () => {
+  // If this regressed, every member would silently stop registering machines
+  // and the admin view would lose the person behind each device.
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${GOOD}`),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(body.valid, true);
+  assert.equal(body.member, undefined);
+});
+
+test("a key on neither list is refused with 200", async () => {
+  const response = await onRequestGet({
+    request: new Request("https://kryonsec.in/api/license/verify?key=KRYO-9999-9999-9999"),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.valid, false);
+  assert.equal(body.member, undefined);
 });
 
 test("a membership key still wins, exactly as before", async () => {

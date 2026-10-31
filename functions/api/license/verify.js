@@ -10,6 +10,8 @@
  * Response contract, read straight out of license.py:
  *
  *   {"valid": true}                       -> activated, cached for a day
+ *   {"valid": true, "member": "…"}        -> activated, and the identity the
+ *                                            app may record for this machine
  *   {"valid": false, "reason": "..."}     -> refused
  *   {"valid": false, "reason": "expired"} -> refused, reported as expired
  *
@@ -42,15 +44,23 @@
  * `kryonsec login`, with the last-seen time the dashboard shows.
  *
  * Environment (Pages -> Settings -> Variables and Secrets, encrypted):
- *   KRYONSEC_KEYS   the same comma-separated list the download gate uses
- *   KRYONSEC_DB     D1 (optional for keys — without it, check-ins are not
- *                   recorded. Required for beta tokens: they live in it.)
+ *   KRYONSEC_KEYS       the same comma-separated list the download gate uses
+ *   KRYONSEC_BETA_KEYS  keys that activate Purple Team without a browser
+ *                       claim. Separate from KRYONSEC_KEYS on purpose: a beta
+ *                       key is a thing people will paste in a chat, so it
+ *                       grants no download right and no membership record.
+ *   KRYONSEC_DB         D1 (optional for keys — without it, check-ins are not
+ *                       recorded. Required for beta tokens: they live in it.)
  */
 
 import { isAllowed, isWellFormedKey } from "../download.js";
 import { bearer, cliSessionFromToken } from "../../_cli.js";
 import { cleanDeviceId, cleanText, nowIso } from "../../_shared.js";
 import { accessFor } from "../../_store.js";
+
+/** The identity a beta key answers with. Not a person: the shared address the
+ *  admin view shows for every machine running on a beta key. */
+const BETA_IDENTITY = "beta@kryonsec.in";
 
 function json(body) {
   return new Response(JSON.stringify(body), {
@@ -141,12 +151,23 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (!isWellFormedKey(key)) return json({ valid: false, reason: "malformed" });
-  if (!isAllowed(key, env.KRYONSEC_KEYS)) {
+  // Checked first, so a key on both lists behaves as the membership key it is
+  // and keeps requiring a browser claim.
+  const membership = isAllowed(key, env.KRYONSEC_KEYS);
+  const beta = !membership && isAllowed(key, env.KRYONSEC_BETA_KEYS);
+  if (!membership && !beta) {
     // Not recorded: an unrecognised key is not a member's machine.
     return json({ valid: false, reason: "not recognised" });
   }
 
   await recordDevice(env, key, params);
+
+  // A beta key has no claim step, so the verdict names the identity that
+  // satisfies the CLI's registration requirement. `member` is absent for a
+  // membership key: those installs must keep claiming, and an old CLI that
+  // never heard of the field behaves exactly as it does today. Revoking a
+  // beta key is an edit to KRYONSEC_BETA_KEYS, not a client release.
+  if (beta) return json({ valid: true, expires: "", member: BETA_IDENTITY });
 
   // No expiry tracking: KRYONSEC_KEYS is a flat allowlist, so a key is valid
   // until it is removed from the list. The client accepts an empty string and
