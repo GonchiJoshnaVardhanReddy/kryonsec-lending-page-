@@ -317,11 +317,45 @@ fi
 # is the escape hatch for air-gapped machines, and it is how support hands
 # someone a build without going through the site.
 WHEEL=""
+# What download_wheel actually stored the release as, once it has read the
+# server's own name for it. pip gets this, not the placeholder path above.
+WHEEL_PATH=""
 
 wheel_hash() {
     local file="$1" sums
     sums="$(sha256sum "$file" 2>/dev/null || shasum -a 256 "$file" 2>/dev/null || true)"
     printf '%s' "${sums%% *}"
+}
+
+# pip reads a wheel's identity out of its filename before it opens the file, and
+# refuses anything that is not name-version-python-abi-platform.whl. Saving the
+# download as kryonsec.whl — which both installers did — makes every install die
+# on "Invalid wheel filename (wrong number of parts)".
+#
+# The release already says what it is called, in Content-Disposition, so that is
+# the name to save under. But that name arrives in a response header, which is
+# network input like any other: it can be absent, it can carry a directory, it
+# can be something pip cannot use. So it is reduced to a basename of wheel-safe
+# characters and kept only if it is shaped like a wheel; otherwise the stand-in
+# takes over. Either way the installed version is unaffected, because
+# wheel_version reads the wheel's own METADATA rather than its name.
+WHEEL_NAME_STANDIN="kryonsec-0-py3-none-any.whl"
+
+wheel_target() {
+    local dir="$1" headers="$2" raw name
+    name=""
+    if [ -n "$headers" ] && [ -r "$headers" ]; then
+        raw="$(grep -i 'filename=' "$headers" 2>/dev/null | tail -n 1 | cut -d= -f2-)"
+        name="${raw%%;*}"
+        name="${name//\"/}"
+        name="${name##*/}"
+        name="${name//[!A-Za-z0-9._+-]/}"
+    fi
+    if printf '%s' "$name" | grep -Eq '^[^-]+(-[^-]+){4,}\.whl$'; then
+        printf '%s/%s\n' "$dir" "$name"
+    else
+        printf '%s/%s\n' "$dir" "$WHEEL_NAME_STANDIN"
+    fi
 }
 
 verify_wheel_hash() {
@@ -387,6 +421,13 @@ download_wheel() {
         esac
     fi
     verify_wheel_hash "$out" "$headers"
+    # Hand the caller back the name the release is actually stored under; pip
+    # is given this path, not the one the caller asked for.
+    WHEEL_PATH="$(wheel_target "$(dirname "$out")" "$headers")"
+    if [ "$WHEEL_PATH" != "$out" ]; then
+        mv -f "$out" "$WHEEL_PATH" \
+            || die "could not store the release as $(basename "$WHEEL_PATH"); the wheel was not installed"
+    fi
     rm -f "$headers" "$status_file" "$error_file"
 }
 
@@ -420,23 +461,25 @@ if [ -n "${KRYONSEC_WHEEL:-}" ]; then
         WHEEL="$TMP_DIR/kryonsec.whl"
         say "fetching the wheel from KRYONSEC_WHEEL"
         download_wheel "$WHEEL" "$KRYONSEC_WHEEL"
+        WHEEL="$WHEEL_PATH"
     else
         die "KRYONSEC_WHEEL is neither a readable .whl file nor an HTTP(S) URL"
     fi
 elif [ -n "${KRYONSEC_DOWNLOAD_URL:-}" ]; then
-    # The beta path, and the only reason it needs a branch of its own: pip
-    # decides a wheel's name from the URL's last path segment and refuses a
-    # wheel it cannot name, so a gated URL has to be fetched to a file first.
-    # (KRYONSEC_WHEEL looks like it would do — it accepts a URL — but piping an
-    # extensionless URL straight into pip fails with "Invalid wheel filename".)
+    # A link handed over ready-made, for a machine that is not going to read a
+    # key at all: an air-gapped transfer or a support build. It needs its own
+    # branch because pip refuses a URL it cannot name — the last path segment of
+    # a gated link is usually nothing at all — so it is fetched to a file first,
+    # and download_wheel then stores that file under the name the response
+    # advertises.
     #
-    # No key is asked for and none is saved: the URL carries a one-time
-    # credential that the account's own dashboard minted, and there is no
-    # membership key in the beta for Purple Team to read later.
+    # No key is asked for and none is saved: the credential lives in the link,
+    # and a link that short cannot also unlock Purple Team later.
     TMP_DIR="$(mktemp -d)"
     WHEEL="$TMP_DIR/kryonsec.whl"
     say "fetching the kryonsec release"
     download_wheel "$WHEEL" "$KRYONSEC_DOWNLOAD_URL"
+    WHEEL="$WHEEL_PATH"
 else
     if [ -z "$KEY" ]; then
         die "a membership key is required. Re-run with:
@@ -449,6 +492,7 @@ else
     # The key is a header, not a query parameter.  The URL is intentionally
     # key-free so proxy/CDN/access logs cannot capture the membership secret.
     download_wheel "$WHEEL" "$DOWNLOAD_URL?os=linux" "$KEY"
+    WHEEL="$WHEEL_PATH"
 fi
 
 INSTALLED_VERSION="$("$VENV/bin/python" -c \
@@ -514,8 +558,8 @@ fi
 if [ -n "$KEY" ]; then
     if "$VENV/bin/python" - "$KEY" <<'PY'
 import sys
-from pathlib import Path
-from kryonsec.config import config_path, read_config, update_config_sections
+import tomllib
+from kryonsec.config import config_path, read_config, write_config
 
 key = sys.argv[1].strip()
 path = config_path()
@@ -523,12 +567,26 @@ data = read_config(path)
 if str(data.get("license", {}).get("key") or "") == key:
     print("already present")
 else:
-    update_config_sections(path, {"license": {"key": key}})
+    try:
+        from kryonsec.config import update_config_sections
+    except ImportError:
+        # The wheel this installer just downloaded predates the section writer,
+        # and read_config/write_config are the pair it does ship. That reader
+        # reports a file it cannot parse as an empty config, so writing back
+        # what it returned would delete the settings it failed to read: re-parse
+        # the bytes first, and let this raise rather than replace the file.
+        if path.is_file():
+            tomllib.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("license", {})["key"] = key
+        write_config(path, data)
+    else:
+        update_config_sections(path, {"license": {"key": key}})
 PY
     then
         say "membership key preserved in config (never printed)"
     else
-        die "existing configuration could not be updated safely; it was not overwritten. Repair $KRYONSEC_HOME/config.toml and re-run"
+        say "WARNING: the key could not be saved to $KRYONSEC_HOME/config.toml"
+        say "         set it yourself with 'kryonsec setup' or KRYONSEC_LICENSE_KEY"
     fi
 fi
 
@@ -951,13 +1009,25 @@ if [ "$PURPLE_REQUESTED" = "1" ]; then
     # atomically; malformed config is never replaced by installer defaults.
     if ! "$VENV/bin/python" - "$IMAGE_DIGEST" <<'PY'
 import sys
-from kryonsec.config import config_path, read_config, update_config_sections
+import tomllib
+from kryonsec.config import config_path, read_config, write_config
 
 digest = sys.argv[1]
 path = config_path()
 data = read_config(path)
 if str(data.get("sandbox", {}).get("image") or "") != digest:
-    update_config_sections(path, {"sandbox": {"image": digest}})
+    try:
+        from kryonsec.config import update_config_sections
+    except ImportError:
+        # Same seam as the membership key: a config this wheel's reader could
+        # not parse arrives as an empty dict, and writing it back would replace
+        # the user's settings with just the digest. Parse the file first.
+        if path.is_file():
+            tomllib.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("sandbox", {})["image"] = digest
+        write_config(path, data)
+    else:
+        update_config_sections(path, {"sandbox": {"image": digest}})
 PY
     then
         die "could not save the verified sandbox digest without overwriting configuration"

@@ -150,6 +150,38 @@ function Verify-WheelHash($Path, $Headers = $null, [switch]$RequireMetadata) {
     }
 }
 
+# pip reads a wheel's identity out of its filename before it opens the file, and
+# refuses anything that is not name-version-python-abi-platform.whl. Saving the
+# download as kryonsec-<guid>.whl — which this script did — makes every install
+# die on "Invalid wheel filename (wrong number of parts)".
+#
+# The release already says what it is called, in Content-Disposition, so that is
+# the name to save under. But that name arrives in a response header, which is
+# network input like any other: it can be absent, it can carry a directory, it
+# can be something pip cannot use. So it is reduced to a leaf of wheel-safe
+# characters and kept only if it is shaped like a wheel; otherwise the stand-in
+# takes over. Either way the installed version is unaffected, because
+# Get-WheelVersion reads the wheel's own METADATA rather than its name.
+$WheelNameStandin = 'kryonsec-0-py3-none-any.whl'
+
+function Get-WheelTarget($Path, $Headers) {
+    $name = $null
+    if ($Headers) {
+        foreach ($header in @($Headers.Keys)) {
+            if ($header -ieq "Content-Disposition") {
+                $value = (@($Headers[$header])[0]).ToString()
+                if ($value -imatch 'filename="?([^";]+\.whl)') { $name = $Matches[1] }
+            }
+        }
+    }
+    if ($name) {
+        $name = Split-Path -Leaf $name
+        $name = ($name -replace '[^A-Za-z0-9._+-]', '')
+    }
+    if ($name -and $name -match '^[^-]+(-[^-]+){4,}\.whl$') { return $name }
+    return $WheelNameStandin
+}
+
 function Download-Wheel($Path, $Uri, $Key = $null) {
     $headers = @{}
     if ($Key) { $headers["X-Kryonsec-Key"] = $Key }
@@ -173,6 +205,11 @@ function Download-Wheel($Path, $Uri, $Key = $null) {
     # Outside the catch on purpose: an integrity failure is a finding, not a
     # network error, and must never be relabelled as one.
     Verify-WheelHash $Path $response.Headers -RequireMetadata
+    # Hand the caller back the name the release is stored under, because that is
+    # the only name pip will accept.
+    $target = Join-Path (Split-Path -Parent $Path) (Get-WheelTarget $Path $response.Headers)
+    if ($target -ne $Path) { Move-Item -LiteralPath $Path -Destination $target }
+    return $target
 }
 
 # ---- browser approval (the short command's credential) ----------------------
@@ -337,8 +374,7 @@ if ($Wheel) {
         Verify-WheelHash $Wheel
     } elseif ($Wheel -match '^https?://') {
         $downloaded = Join-Path ([System.IO.Path]::GetTempPath()) ("kryonsec-" + [guid]::NewGuid().ToString('N') + ".whl")
-        Download-Wheel $downloaded $Wheel
-        $Wheel = $downloaded
+        $Wheel = Download-Wheel $downloaded $Wheel
     } else {
         Die "KRYONSEC_WHEEL is neither a readable .whl file nor an HTTP(S) URL"
     }
@@ -375,13 +411,13 @@ if ($Wheel) {
         # first use.
         $Wheel = Join-Path ([System.IO.Path]::GetTempPath()) ("kryonsec-beta-" + [guid]::NewGuid().ToString('N') + ".whl")
         Say "fetching the kryonsec release"
-        Download-Wheel $Wheel $DownloadUri
+        $Wheel = Download-Wheel $Wheel $DownloadUri
     } else {
         $Wheel = Join-Path ([System.IO.Path]::GetTempPath()) ("kryonsec-" + [guid]::NewGuid().ToString('N') + ".whl")
         Say "fetching the kryonsec release"
         # The membership key is a header, not a query parameter, so it cannot land
         # in proxy/CDN/access logs as part of the URL.
-        Download-Wheel $Wheel "$DownloadUrl`?os=windows" $Key
+        $Wheel = Download-Wheel $Wheel "$DownloadUrl`?os=windows" $Key
     }
 }
 
@@ -407,19 +443,34 @@ if (-not (Test-Path $Kryo)) { Die "installation failed: kryonsec command was not
 if ($Key) {
     $saveKey = @'
 import sys
-from kryonsec.config import config_path, read_config, update_config_sections
+import tomllib
+from kryonsec.config import config_path, read_config, write_config
 
 key = sys.argv[1].strip()
 path = config_path()
 data = read_config(path)
 if str(data.get("license", {}).get("key") or "") != key:
-    update_config_sections(path, {"license": {"key": key}})
+    try:
+        from kryonsec.config import update_config_sections
+    except ImportError:
+        # The wheel this installer just downloaded predates the section writer,
+        # and read_config/write_config are the pair it does ship. That reader
+        # reports a file it cannot parse as an empty config, so writing back
+        # what it returned would delete the settings it failed to read: re-parse
+        # the bytes first, and let this raise rather than replace the file.
+        if path.is_file():
+            tomllib.loads(path.read_text(encoding="utf-8"))
+        data.setdefault("license", {})["key"] = key
+        write_config(path, data)
+    else:
+        update_config_sections(path, {"license": {"key": key}})
 '@
     & (Join-Path $Venv "Scripts\python.exe") -c $saveKey $Key
     if ($LASTEXITCODE -eq 0) {
         Say "membership key preserved in config (never printed)"
     } else {
-        Die "existing configuration could not be updated safely; it was not overwritten. Repair $Home1\config.toml and re-run"
+        Say "WARNING: the key could not be saved to $Home1\config.toml"
+        Say "         set it yourself with 'kryonsec setup' or KRYONSEC_LICENSE_KEY"
     }
 }
 
