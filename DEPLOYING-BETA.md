@@ -369,13 +369,22 @@ Run these in order. Each one failing names the step that was missed.
 4. Submit the form at `/apply`. The dashboard says "IS IN REVIEW".
 5. As the administrator, open `/admin` and approve it. The account's dashboard
    changes to "YOU ARE IN" with an install command.
-6. On a Linux or WSL2 machine, run the command from the dashboard. It installs.
+6. On a Linux or WSL2 machine, run the Unix command from the dashboard. It
+   installs using the one-time `dl_` link the dashboard minted.
 
-   This uses the installers published at `/install.sh` and `/install.ps1`.
-   They are copies of the last CLI release and do **not** yet check
-   `X-Kryonsec-Wheel-SHA256`; the fixed installers are in the CLI working
-   tree. Publish them only after the server header is live, or the new
-   installers will refuse the download by design. See `kryonsec/RELEASING.md`.
+   On a Windows machine, run the short command from the dashboard:
+
+   ```powershell
+   irm https://<site>/install.ps1 -OutFile "$env:TEMP\kryonsec-install.ps1"
+   powershell -ExecutionPolicy Bypass -File "$env:TEMP\kryonsec-install.ps1"
+   ```
+
+   It opens `/beta/device` for approval, then polls with
+   `purpose: "download"` and installs with the single-use link it receives.
+   The Windows installer verifies `X-Kryonsec-Wheel-SHA256` and refuses a
+   missing or mismatched hash. It is a copy of the CLI working tree: publish
+   it only after the server that sends that header is live, or it will refuse
+   the download by design. See `kryonsec/RELEASING.md`.
 
 7. Run `kryonsec login` on that machine. It prints a link and a code.
 8. Open the link, approve the machine. The terminal picks it up by itself and

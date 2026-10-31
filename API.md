@@ -97,16 +97,21 @@ once — membership keys do not consult it.
 | `/api/beta/download?t=<token>` | GET | `dl_` + 64 hex | 302 to the release asset. 15 minutes, single use, scoped to one user |
 | `/api/download?key=<key>` | GET | membership key | 302 to the release asset. Unchanged legacy path |
 
-The beta token is minted per dashboard page view. `pip` derives the wheel
+The beta token is minted per dashboard page view for the Unix command, and by
+an approved device poll for the Windows installer. `pip` derives the wheel
 filename from the URL path, not `Content-Disposition`, so the redirect target
 matters.
+
+The Windows command carries no token: its installer asks for browser approval
+and collects a fresh link from the poll below. That link is the same `dl_`
+credential, with the same 15-minute, single-use rules.
 
 ## The command line
 
 | route | method | auth | body → answer |
 |---|---|---|---|
 | `/api/beta/device/start` | POST | **none** | `{device_id, os, arch, version}` → `{code, device_code, url, expires_in_min}` |
-| `/api/beta/device/poll` | POST | **none** | `{device_code}` → `{status, …}` |
+| `/api/beta/device/poll` | POST | **none** | `{device_code, purpose?}` → `{status, …}` |
 | `/api/beta/device/approve` | POST | session + CSRF + entitled | `{code, decision}` → 303 back to `/beta/device` |
 | `/api/beta/machines` | POST | session + CSRF | `{id, intent=revoke}` → 303 to `/dashboard#machines` |
 | `/api/beta/cli/logout` | POST | `Authorization: Bearer s_…` | `{ok, revoked}` |
@@ -122,10 +127,18 @@ credential, which is the thing the flow exists to give it.
 ```
 {status: "pending"}                                   keep waiting
 {status: "approved", token: "s_…", email, label, prefix}   store it
+{status: "approved", download_url: "…", email, label, expires_in_min}   install with it
 {status: "denied"}                                    the person said no
 {status: "denied", reason: "…"}                       their access went away
 {status: "expired"} | {status: "unknown"}             start over
 ```
+
+`purpose` defaults to `"cli"` and may also be `"download"`; any other value is
+a 400. It chooses *which credential* an approval yields, never whether the
+approval is allowed — both purposes run the same session, CSRF and `accessFor`
+checks on the approval POST. `"download"` returns a single-use `dl_` link and
+mints no CLI session, because the Windows installer has no reason to become a
+signed-in machine just to fetch a wheel.
 
 `unknown` is the answer for a malformed code, a code that never existed, and a
 code already collected — one value, so the endpoint cannot be asked which

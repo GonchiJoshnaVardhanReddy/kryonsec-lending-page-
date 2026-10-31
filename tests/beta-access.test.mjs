@@ -304,6 +304,25 @@ test("an entitled account is given a working install command", async (t) => {
   assert.equal(db._raw.prepare("SELECT user_id FROM download_tokens WHERE token_hash = ?").get(await sha256Hex(token)).user_id, userId);
 });
 
+test("the Windows install command is short, stable, and carries no credential", async (t) => {
+  const db = testD1();
+  const { cookie } = await entitled(db);
+  stubGithub(t);
+
+  const body = await (await dashboard({ request: get(`${SITE}/dashboard`, { Cookie: cookie }), env: ENV(db) })).text();
+  const windows = /Windows, in PowerShell:<\/p>\s*<div class="install-command"><code>(.*?)<\/code><\/div>/.exec(body)?.[1];
+
+  assert.ok(windows, "the dashboard should render a Windows install command");
+  assert.equal(
+    windows,
+    `irm ${SITE}/install.ps1 -OutFile &quot;$env:TEMP\\kryonsec-install.ps1&quot;; powershell -ExecutionPolicy Bypass -File &quot;$env:TEMP\\kryonsec-install.ps1&quot;`,
+  );
+  // The installer gets its own one-time credential by asking for approval.
+  // Nothing in the command the member copies is a credential.
+  assert.doesNotMatch(windows, /dl_[0-9a-f]{64}/);
+  assert.doesNotMatch(windows, /KRYONSEC_DOWNLOAD_URL/);
+});
+
 test("a pending applicant is told they are in review, and gets no install command", async () => {
   const db = testD1();
   const userId = await makeUser(db);

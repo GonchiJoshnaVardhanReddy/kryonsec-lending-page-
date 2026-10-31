@@ -31,7 +31,7 @@ import { accessFor } from "../_store.js";
 
 /** Reason codes come back in the URL, so the sentences live here. */
 const MESSAGES = {
-  approved: ["ok", "Approved. Go back to your terminal — it will pick this up on its own."],
+  approved: ["ok", "Approved. Go back to your terminal or installer window — it will pick this up on its own."],
   denied: ["warn", "Denied. Nothing was granted and the terminal has been told."],
   stale: [
     "warn",
@@ -130,8 +130,8 @@ function render({ session, csrf, message, machine, entitled = false, reason = ""
     kicker: "KR / DEVICE",
     right: "SIGN-IN",
     heading: "A MACHINE WANTS",
-    accent: "TO SIGN IN.",
-    lede: `If you just ran \`kryonsec login\`, this is it. Approving signs that machine in as ${session.user.email}, and it stays signed in until you revoke it or it expires.`,
+    accent: "TO CONNECT.",
+    lede: `If you just ran \`kryonsec login\` or the Windows installer, this is it. Approving acts as ${session.user.email}: a CLI login stays signed in until you revoke it or it expires, while an installer receives a single-use download link.`,
     notice: banner,
     body: `                <div class="review-card">
                     <div class="review-head"><span>THE MACHINE</span><span>CODE ${esc(machine.code)}</span></div>
@@ -142,7 +142,7 @@ function render({ session, csrf, message, machine, entitled = false, reason = ""
                             ${field("DEVICE", machine.device_id ? `${String(machine.device_id).slice(0, 12)}…` : "")}
                             ${field("ASKED", `${Math.max(0, Math.round((Date.now() - Date.parse(machine.created_at)) / 60000))} minute(s) ago`)}
                         </dl>
-                        <p class="form-note">Check the platform and version match the machine in front of you. If you did not run <code>kryonsec login</code>, deny it — approving would give whoever did access to this account.</p>
+                        <p class="form-note">Check the platform and version match the machine in front of you. If you did not run <code>kryonsec login</code> or start the Windows installer, deny it — approving would let whoever did act as this account.</p>
                         <form class="feedback-form" method="post" action="/api/beta/device/approve">
                             <input type="hidden" name="csrf" value="${esc(csrf)}">
                             <input type="hidden" name="code" value="${esc(machine.code)}">

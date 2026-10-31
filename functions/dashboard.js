@@ -105,7 +105,7 @@ function machinesCard(rows, csrf) {
 function installCard(origin, token) {
   const url = `${origin}/api/beta/download?t=${token}`;
   const unix = `curl -fsSL ${origin}/install.sh | KRYONSEC_DOWNLOAD_URL='${url}' bash`;
-  const windows = `$env:KRYONSEC_DOWNLOAD_URL='${url}'; irm ${origin}/install.ps1 -OutFile $env:TEMP\\install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\install.ps1`;
+  const windows = `irm ${origin}/install.ps1 -OutFile "$env:TEMP\\kryonsec-install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\\kryonsec-install.ps1"`;
 
   return card(
     "01 / INSTALL",
@@ -115,7 +115,8 @@ function installCard(origin, token) {
                     ${command(unix)}
                     <p class="form-note">Windows, in PowerShell:</p>
                     ${command(windows)}
-                    <p class="form-note">The link inside it carries a one-time credential that stops working after ${CODE_TTL_MIN} minutes and cannot be used twice. It is not your account and it is not a membership key. Reload this page for a fresh one.</p>`,
+                    <p class="form-note">On Windows, the installer opens a page where you approve the install. Nothing in that command is a credential, and no link needs to be copied.</p>
+                    <p class="form-note">The Linux, macOS and WSL2 command carries a one-time credential that stops working after ${CODE_TTL_MIN} minutes and cannot be used twice. It is not your account and it is not a membership key. Reload this page for a fresh one.</p>`,
   );
 }
 

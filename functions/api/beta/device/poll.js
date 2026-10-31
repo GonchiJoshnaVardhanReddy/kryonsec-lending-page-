@@ -22,6 +22,13 @@
  * never put in the URL, and never sent anywhere but here. The short code the
  * person reads off the screen is a different column for that reason.
  *
+ * `purpose: "download"` is the Windows installer's half of the same grant. It
+ * collects a single-use download token instead of a machine session: the
+ * installer needs the bytes once, and leaving a ninety-day credential behind
+ * would be more authority than the job asks for. Choosing a purpose cannot
+ * widen what is granted — both outcomes require the same browser approval and
+ * the same `accessFor()` — it only narrows the credential that comes back.
+ *
  * A denied login is reported as denied rather than as unknown, so the person
  * who clicked "no" can see the terminal say so instead of waiting out the
  * clock. It reveals nothing: the caller already had to hold the device_code.
@@ -29,7 +36,7 @@
  * Environment: KRYONSEC_DB (D1).
  */
 
-import { createCliSession, tokenPrefix } from "../../../_cli.js";
+import { createCliSession, mintDownloadToken, tokenPrefix } from "../../../_cli.js";
 import { CODE_TTL_MIN, isoAgo, json } from "../../../_shared.js";
 import { accessFor } from "../../../_store.js";
 
@@ -45,6 +52,11 @@ export async function onRequestPost({ request, env }) {
     body = await request.json();
   } catch {
     return json({ error: "expected a JSON body" }, 400);
+  }
+
+  const purpose = String(body.purpose || "cli").trim();
+  if (purpose !== "cli" && purpose !== "download") {
+    return json({ status: "unknown", error: "unknown purpose" }, 400);
   }
 
   const deviceCode = String(body.device_code || "").trim();
@@ -90,6 +102,21 @@ export async function onRequestPost({ request, env }) {
   if (!claim.meta || claim.meta.changes !== 1) return json({ status: "unknown" });
 
   const label = [row.os, row.arch].filter(Boolean).join("/") || "machine";
+
+  if (purpose === "download") {
+    const raw = await mintDownloadToken(db, row.approved_by);
+    // Built from this request so a preview deployment hands back its own
+    // origin, exactly as the approval link does.
+    const origin = new URL(request.url).origin;
+    return json({
+      status: "approved",
+      download_url: `${origin}/api/beta/download?t=${raw}`,
+      expires_in_min: CODE_TTL_MIN,
+      email: row.email || "",
+      label,
+    });
+  }
+
   const token = await createCliSession(db, { userId: row.approved_by, label });
 
   return json({ status: "approved", token, email: row.email || "", label, prefix: tokenPrefix(token) });
