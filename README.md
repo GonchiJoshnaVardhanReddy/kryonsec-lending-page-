@@ -91,6 +91,136 @@ installer does nothing until it is copied here. `tests/install-script.test.mjs`
 checks the served copy's contract (no embedded credential, browser approval,
 hash verification); the CLI repo's pytest suite exercises its behavior.
 
+## Installing Kryonsec (Linux or WSL2)
+
+This is what `install.sh` is for, written out so the operator can tell a broken
+install from an unprepared machine. Run it from inside a WSL2 Ubuntu terminal:
+the installer reads its approvals and the setup wizard from `/dev/tty`, so a
+`wsl -- bash -c '...'` one-liner has a terminal but nobody watching it.
+
+Two shapes exist. **Copilot (Mode A)** is the interactive CLI and needs nothing
+but Python. **Purple Team (Mode B)** is the sandboxed engagement engine, is
+Linux/WSL2 only, and needs a native Docker Engine with a registered gVisor
+runtime. There is no `runc` fallback: if `runsc` is not on the daemon you
+selected, the install stops rather than quietly running you with weaker
+isolation.
+
+### Prerequisites
+
+```bash
+sudo apt-get update
+sudo apt-get install -y curl ca-certificates python3.12 python3.12-venv python3-pip
+```
+
+Python 3.11+ is required; 3.12 is the fast path. On 3.14 pip may compile
+dependencies from source, which looks like a hung install for many minutes.
+Don't run the installer as root — it would install into `/root/.kryonsec` and
+the command would exist only for root.
+
+Preview without touching anything:
+
+```bash
+curl -fsSL https://kryonsec.in/install.sh -o install.sh
+bash install.sh --dry-run --profile=purple
+```
+
+### Docker Engine, native inside WSL2
+
+```bash
+sudo apt-get install -y docker.io
+sudo systemctl enable --now docker      # or: sudo service docker start
+sudo usermod -aG docker "$USER"         # then reopen the WSL terminal
+docker info --format '{{.OperatingSystem}}'
+```
+
+`docker info` must work as your user, and must not report `Docker Desktop`.
+A `runsc` installed inside WSL cannot be loaded by the Docker Desktop daemon, so
+the installer refuses that daemon outright — it will not switch contexts or
+reconfigure Desktop on your behalf. With more than one context present, say
+which one you mean (`export DOCKER_CONTEXT=<name>`); an unambiguous choice is
+required, not guessed.
+
+### gVisor
+
+```bash
+curl -fsSL https://gvisor.dev/archive.key |
+  sudo gpg --dearmor --yes -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" |
+  sudo tee /etc/apt/sources.list.d/gvisor.list
+sudo apt-get update && sudo apt-get install -y runsc
+sudo runsc install && sudo systemctl restart docker
+docker info --format '{{json .Runtimes}}' | grep -o runsc
+```
+
+The installer performs the same steps itself, each behind a consent prompt, and
+backs up `/etc/docker/daemon.json` before `runsc install` edits it — so this
+section is the manual path, not a hidden requirement.
+
+### Install and activate
+
+```bash
+bash install.sh --profile=purple
+```
+
+`--profile=auto` installs Copilot and asks before the optional host changes,
+`--profile=copilot` never touches Docker, `--profile=purple` requires the full
+isolated path. `--yes` pre-approves prompts, `--no-wizard` skips the setup
+wizard, `--repair` preserves an incomplete virtualenv (or a malformed gVisor apt
+source) before replacing it — it moves the old one to a timestamped backup and
+deletes nothing.
+
+The wheel is fetched with your credential in an `X-Kryonsec-Key` header, never
+in a URL (a URL lands in proxy and access logs), then checked against the
+release's `X-Kryonsec-Wheel-SHA256`; a missing or wrong hash is not installed.
+The download is stored under the name the release advertises in
+`Content-Disposition`, because pip takes a wheel's identity from its filename
+and refuses one it cannot name. The Purple path then pulls the release-matched
+sandbox image and saves the resolved `@sha256:` digest — a mutable tag is never
+accepted as the runtime.
+
+When it finishes it asks how to activate: paste a key, register the machine in
+a browser, or skip. **Prefer pasting the key.** Typing it at that prompt is
+hidden and never reaches shell history, while `KRYONSEC_KEY=... bash install.sh`
+writes it to `~/.bash_history`. One key covers both modes: `/api/license/verify`
+answers a beta key with the shared identity, and Purple Team requires that
+identity to be present, which is why a key alone unlocks Mode B and a bare
+download link does not.
+
+`kryonsec login` is the browser path, and it is live — but its approval page
+only accepts a signed-in member with a beta entitlement. Until the first
+entitlement row exists (see [DEPLOYING-BETA.md §5](DEPLOYING-BETA.md), "The
+first administrator"), nobody can approve a login, so use the key or
+`kryonsec connect`.
+
+### Verify and test
+
+```bash
+export PATH="$HOME/.kryonsec/venv/bin:$PATH"
+kryonsec doctor --deep --strict; echo "rc=$?"
+kryonsec auth
+kryonsec                                  # Mode A: interactive Copilot
+kryonsec purple --target <authorized-target>   # Mode B, inside the gVisor sandbox
+kryonsec purple --target <authorized-target> --code ~/src/myapp
+```
+
+`--deep` creates and removes a network-disabled `runsc` smoke container. That is
+the check that proves Mode B really runs, and the pass condition is no FAIL rows
+with `rc=0`. `--code` mounts a folder read-only into the sandbox for blue-team
+static scanning. Point `--target` only at systems the operator is authorised to
+test.
+
+### When it fails
+
+| Message | What it actually means |
+| --- | --- |
+| `the selected daemon is Docker Desktop` | The wrong daemon is selected. Pick a native Linux Docker Engine context. |
+| `multiple Docker contexts are available and none was explicitly selected` | Set `DOCKER_CONTEXT`. The installer will not choose for you. |
+| `could not create a virtualenv` | `python3-venv` is missing; the installer asks to install it and says so when the answer is no. |
+| `sandbox image has no registry digest` | A local or tag-only ref was supplied through `KRYONSEC_SANDBOX_IMAGE`. Let the installer resolve the digest. |
+| an unrelated `apt-get install` fails | A malformed `/etc/apt/sources.list.d/gvisor.list` blocks all of apt; the symptom is a Docker install error whose cause is gVisor. Use `--repair`. |
+| `~/.kryonsec/venv exists but is incomplete` | Re-run with `--repair` after reviewing the backup plan. |
+| Purple FAIL from `doctor --deep` | `runsc` is not registered with the daemon the CLI actually talks to. Register it on that host, then re-run. |
+
 ## The Windows install command
 
 The documented Windows command is short, stable, and carries no credential:
