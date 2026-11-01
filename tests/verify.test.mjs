@@ -9,9 +9,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { onRequestGet } from "../functions/api/license/verify.js";
+import { sha256Hex } from "../functions/_auth.js";
+import { createCliSession, revokeCliSession } from "../functions/_cli.js";
+import { grantEntitlement, revokeEntitlement } from "../functions/_store.js";
+import { makeUser, testD1 } from "./helpers/d1.mjs";
 
 const GOOD = "KRYO-AB2C-DE3F-GH4J";
 const KEYS = `${GOOD},KRYO-2222-2222-2222`;
+const BETA = "KRYO-BETA-BETA-BETA";
+const BETA_KEYS = `${BETA},KRYO-7777-7777-7777`;
 
 async function verify(key, keys = KEYS) {
   const url = key === null
@@ -69,85 +75,171 @@ test("the verdict is never cached", async () => {
   assert.equal(response.headers.get("Cache-Control"), "no-store");
 });
 
-// ---------------------------------------------------------------------------
-// The beta list.
+// --- beta accounts, which have no key ---------------------------------------
 //
-// Purple Team needs two things from this endpoint: a verdict the app can cache
-// and an address to record as the machine's owner. A membership key supplies
-// neither address — the member claims one by browser — so a beta tester with
-// only a key would read "run `kryonsec connect` first" forever. The server
-// answers a beta key with a shared address instead, and revoking it stays a
-// one-line edit to a secret rather than a client release.
-// ---------------------------------------------------------------------------
+// Same endpoint, second credential. What matters is that the verdict is
+// `accessFor`'s and not a second opinion — so a revocation made in the review
+// desk has to show up here on the next call, with no cache in between.
 
-const BETA = "KRYO-BETA-BETA-BETA";
+const BETA_ENV = (db) => ({ KRYONSEC_DB: db });
 
-async function ask(env, key) {
+async function beta(token, db) {
   const response = await onRequestGet({
-    request: new Request(
-      "https://kryonsec.in/api/license/verify",
-      { headers: { "X-Kryonsec-Key": key } },
-    ),
-    env,
+    request: new Request("https://kryonsec.in/api/license/verify", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }),
+    env: BETA_ENV(db),
   });
   return { status: response.status, body: await response.json() };
 }
 
-test("a beta key is vouched for by the server", async () => {
-  const { status, body } = await ask({ KRYONSEC_BETA_KEYS: BETA }, BETA);
+/** A beta account with an active entitlement and one signed-in machine. */
+async function machine(db) {
+  const userId = await makeUser(db);
+  await grantEntitlement(db, { userId, actor: "admin" });
+  return { userId, token: await createCliSession(db, { userId, label: "linux/x86_64" }) };
+}
+
+test("a CLI token with an active entitlement validates", async () => {
+  const db = testD1();
+  const { token } = await machine(db);
+
+  const { status, body } = await beta(token, db);
   assert.equal(status, 200);
+  assert.equal(body.valid, true);
+});
+
+test("a revocation in the review desk stops the next check-in", async () => {
+  const db = testD1();
+  const { userId, token } = await machine(db);
+  await revokeEntitlement(db, { userId, actor: "admin", reason: "sharing the wheel" });
+
+  const { status, body } = await beta(token, db);
+  // 200 with valid:false, not 403 — a 403 is the grace period this endpoint
+  // exists to avoid.
+  assert.equal(status, 200);
+  assert.equal(body.valid, false);
+  assert.match(body.reason, /sharing the wheel|revoked/i);
+});
+
+test("ending the programme stops a token whose own access is still active", async () => {
+  const db = testD1();
+  const { token } = await machine(db);
+  db._raw.prepare("UPDATE beta_program SET status = 'ended' WHERE id = 1").run();
+
+  const { body } = await beta(token, db);
+  assert.equal(body.valid, false);
+  assert.match(body.reason, /programme has ended/i);
+});
+
+test("an unrecognised, expired or revoked token is refused the same way", async () => {
+  const db = testD1();
+  const { userId, token } = await machine(db);
+  const cli = db._raw.prepare("SELECT id FROM cli_sessions WHERE user_id = ?").get(userId);
+  await revokeCliSession(db, { id: cli.id, actor: "self" });
+  const expired = await createCliSession(db, { userId });
+  db._raw
+    .prepare("UPDATE cli_sessions SET expires_at = ? WHERE token_hash = ?")
+    .run("2020-01-01T00:00:00.000Z", await sha256Hex(expired));
+
+  const reasons = [];
+  for (const t of [token, expired, `s_${"a".repeat(64)}`, "", "not-a-token"]) {
+    const { status, body } = await beta(t, db);
+    assert.equal(status, 200);
+    assert.equal(body.valid, false);
+    reasons.push(body.reason);
+  }
+
+  // One sentence for all five. A distinct "that token was revoked" would tell
+  // someone guessing which guesses were once real credentials.
+  assert.equal(new Set(reasons).size, 1, `refusals differed: ${reasons.join(" / ")}`);
+});
+
+test("with no database bound, a token fails closed rather than open", async () => {
+  const response = await onRequestGet({
+    request: new Request("https://kryonsec.in/api/license/verify", {
+      headers: { Authorization: `Bearer s_${"a".repeat(64)}` },
+    }),
+    env: {},
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).valid, false);
+});
+
+test("a beta key is vouched for by the server", async () => {
+  // The point of the beta allowlist: the CLI gate still requires an identity,
+  // but a beta key has no browser claim to produce one, so this endpoint names
+  // it. Revoking a beta key is then an edit to a secret, not a client release.
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${BETA}`),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
   assert.equal(body.valid, true);
   assert.equal(body.member, "beta@kryonsec.in");
 });
 
 test("a beta key works with no membership allowlist at all", async () => {
-  // The state production is actually in when the beta list is the only one
-  // filled in: a missing KRYONSEC_KEYS must not turn the beta door shut.
-  const { body } = await ask({ KRYONSEC_BETA_KEYS: BETA }, BETA);
-  assert.equal(body.valid, true);
-});
-
-test("a paid membership key carries no identity", async () => {
-  // Absent, not empty: the CLI only adopts an address it does not already
-  // have, and a blank here would overwrite a member's claimed email.
-  const { body } = await ask({ KRYONSEC_KEYS: KEYS }, GOOD);
-  assert.equal(body.valid, true);
-  assert.equal("member" in body, false);
-});
-
-test("a membership key keeps claiming even while a beta list is live", async () => {
-  const { body } = await ask(
-    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA },
-    GOOD,
-  );
-  assert.equal(body.valid, true);
-  assert.equal("member" in body, false);
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${BETA}`),
+    env: { KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  assert.equal((await response.json()).valid, true);
 });
 
 test("a key on both lists answers with the identity", async () => {
-  // The order is the product decision: one credential a beta tester types once
-  // and both modes work. A membership-only key still answers with no identity,
-  // so the claim step in the browser stays what names a paid member.
-  const { status, body } = await ask(
-    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: GOOD },
-    GOOD,
-  );
-  assert.equal(status, 200);
+  // The order is the product decision, and it is what production already
+  // answers with: one credential, typed once, carries a tester through Copilot
+  // and Purple Team. A membership-only key still answers with no identity, so
+  // the browser claim stays what names a paid member.
+  const response = await onRequestGet({
+    request: new Request("https://kryonsec.in/api/license/verify", {
+      headers: { "X-Kryonsec-Key": GOOD },
+    }),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: `${BETA},${GOOD}` },
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
   assert.equal(body.valid, true);
   assert.equal(body.member, "beta@kryonsec.in");
 });
 
-test("a key on neither list is refused with 200", async () => {
-  const { status, body } = await ask(
-    { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA },
-    "KRYO-3333-3333-3333",
-  );
-  assert.equal(status, 200);
-  assert.equal(body.valid, false);
-  assert.ok(body.reason);
+test("a paid membership key carries no identity", async () => {
+  // If this regressed, every member would silently stop registering machines
+  // and the admin view would lose the person behind each device.
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${GOOD}`),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(body.valid, true);
+  assert.equal(body.member, undefined);
 });
 
-test("an unset beta list changes nothing for a membership key", async () => {
-  const { body } = await ask({ KRYONSEC_KEYS: KEYS }, GOOD);
-  assert.equal(body.valid, true);
+test("a key on neither list is refused with 200", async () => {
+  const response = await onRequestGet({
+    request: new Request("https://kryonsec.in/api/license/verify?key=KRYO-9999-9999-9999"),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_BETA_KEYS: BETA_KEYS },
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.valid, false);
+  assert.equal(body.member, undefined);
+});
+
+test("a membership key still wins, exactly as before", async () => {
+  const db = testD1();
+  // A key alongside a token that resolves to a revoked account: the key path
+  // is what an existing install sends, and it must not be re-adjudicated.
+  const { userId, token } = await machine(db);
+  await revokeEntitlement(db, { userId, actor: "admin" });
+
+  const response = await onRequestGet({
+    request: new Request(`https://kryonsec.in/api/license/verify?key=${GOOD}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+    env: { KRYONSEC_KEYS: KEYS, KRYONSEC_DB: db },
+  });
+  assert.equal((await response.json()).valid, true);
 });

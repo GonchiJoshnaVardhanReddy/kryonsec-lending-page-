@@ -8,6 +8,11 @@
 # on the terminal, whether to paste a key or register the machine in a browser.
 # Add --no-wizard to neither ask nor run the setup wizard.
 #
+# Beta accounts do not use a key. Sign in at the site and its dashboard prints
+# the command with KRYONSEC_DOWNLOAD_URL set to a one-time link:
+#
+#   curl -fsSL https://kryonsec.in/install.sh | KRYONSEC_DOWNLOAD_URL='https://kryonsec.in/api/beta/download?t=dl_...' bash
+#
 # Kryonsec is commercial, closed-source software: there is no public repository
 # to clone. The release below is a built wheel, and the membership key is what
 # unlocks it, so this script does nothing useful without one.
@@ -20,7 +25,9 @@
 #   4. fetches the kryonsec release from kryonsec.in using your key — the key
 #      travels in a header, never in a URL — checks the wheel's SHA-256 against
 #      what the release published, and saves the key so Purple Team can use it
-#      later. A wheel whose hash is missing or wrong is not installed.
+#      later. A wheel whose hash is missing or wrong is not installed. A beta
+#      account instead fetches the one-time link the dashboard gave it, and the
+#      same hash check still applies.
 #   5. adds ~/.kryonsec/venv/bin to PATH (in .bashrc, idempotent)
 #   6. on the approved Purple profile: validates the selected Docker context,
 #      asks before packages/group/service/daemon changes, and fetches a
@@ -466,15 +473,20 @@ if [ -n "${KRYONSEC_WHEEL:-}" ]; then
         die "KRYONSEC_WHEEL is neither a readable .whl file nor an HTTP(S) URL"
     fi
 elif [ -n "${KRYONSEC_DOWNLOAD_URL:-}" ]; then
-    # A link handed over ready-made, for a machine that is not going to read a
-    # key at all: an air-gapped transfer or a support build. It needs its own
-    # branch because pip refuses a URL it cannot name — the last path segment of
-    # a gated link is usually nothing at all — so it is fetched to a file first,
-    # and download_wheel then stores that file under the name the response
-    # advertises.
+    # The beta path, and the only reason it needs a branch of its own: pip
+    # decides a wheel's name from the URL's last path segment and refuses a
+    # wheel it cannot name, so a gated URL has to be fetched to a file first.
+    # (KRYONSEC_WHEEL looks like it would do — it accepts a URL — but piping an
+    # extensionless URL straight into pip fails with "Invalid wheel filename".)
     #
-    # No key is asked for and none is saved: the credential lives in the link,
-    # and a link that short cannot also unlock Purple Team later.
+    # No key is asked for and none is saved: the URL carries a one-time
+    # credential the account's own dashboard minted, and there is no membership
+    # key behind it for Purple Team to read later. Mint a fresh one at
+    # $SITE/dashboard when this link has been refused or has expired.
+    #
+    # It still goes through download_wheel, so the wheel is checked against the
+    # SHA-256 the release published before anything is installed. A link that
+    # hands over the bytes is not a link that vouches for them.
     TMP_DIR="$(mktemp -d)"
     WHEEL="$TMP_DIR/kryonsec.whl"
     say "fetching the kryonsec release"

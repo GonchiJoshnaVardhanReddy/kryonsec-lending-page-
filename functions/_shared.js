@@ -9,10 +9,27 @@ import { timingSafeEqual } from "./api/download.js";
 
 // --- responses --------------------------------------------------------------
 
+// `_headers` only decorates static asset responses; a Function response gets
+// none of it. These are the same baseline protections, set here because every
+// dynamic page and API response has to carry its own.
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'self'; object-src 'none'; " +
+  "frame-ancestors 'none'; script-src 'self'; " +
+  "style-src 'self' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com; img-src 'self' data:; " +
+  "connect-src 'self'; frame-src https://www.youtube.com; form-action 'self'";
+
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...SECURITY_HEADERS,
       "Content-Type": "application/json; charset=utf-8",
       // Every response here is tied to one member's key or one admin session.
       // A shared cache holding it would hand it to the next caller.
@@ -25,10 +42,32 @@ export function html(markup, status = 200) {
   return new Response(markup, {
     status,
     headers: {
+      ...SECURITY_HEADERS,
+      "Content-Security-Policy": CONTENT_SECURITY_POLICY,
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Robots-Tag": "noindex, nofollow",
     },
+  });
+}
+
+/**
+ * Send the browser somewhere else.
+ *
+ * 303, not 302: a redirect that follows a POST has to turn the follow-up into
+ * a GET, or a refresh re-submits the form. Every redirect on this site is
+ * either a GET in the first place or a form submission, and 303 is correct for
+ * both.
+ *
+ * `Location` is only ever given a value this code built or a path that has
+ * been through `safeNext()` — a redirect assembled from a query parameter is
+ * an open redirect, which is how a link on our own domain ends up on someone
+ * else's page.
+ */
+export function redirect(location, status = 303) {
+  return new Response(null, {
+    status,
+    headers: { Location: location, "Cache-Control": "no-store" },
   });
 }
 
@@ -121,8 +160,15 @@ export function isAdmin(token, configured) {
 
 // --- the page shell ---------------------------------------------------------
 
-/** The site's own chrome, so these pages do not look like a different site. */
-export function page(title, body) {
+/**
+ * The site's own chrome, so these pages do not look like a different site.
+ *
+ * `nav` renders inside the header's flex row, to the right of the brand — the
+ * account links on the beta pages. `shellClass` widens the content column for
+ * pages that are tables rather than a form. Both default to the original
+ * behaviour, so the pages written before either existed are unchanged.
+ */
+export function page(title, body, status = 200, { nav = "", shellClass = "" } = {}) {
   return html(`<!doctype html>
 <html lang="en">
 <head>
@@ -142,17 +188,18 @@ export function page(title, body) {
 <header class="site-header">
     <div class="container header-inner">
         <a class="brand" href="/" aria-label="Kryonsec home"><img class="brand-mark" src="/assets/octopus-reference.png" alt="" width="32" height="32" aria-hidden="true"><span>KRYONSEC</span></a>
+        ${nav}
     </div>
 </header>
 <main id="main-content">
 <section class="section">
     <div class="container">
-        <div class="feedback-form-shell">
+        <div class="feedback-form-shell${shellClass ? ` ${shellClass}` : ""}">
 ${body}
         </div>
     </div>
 </section>
 </main>
 </body>
-</html>`);
+</html>`, status);
 }

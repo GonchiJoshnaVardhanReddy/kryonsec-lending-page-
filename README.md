@@ -2,6 +2,22 @@
 
 This is the standalone static website for [kryonsec.in](https://kryonsec.in). It is intentionally separate from the Kryonsec agent repository and can be deployed without a backend.
 
+The site now also serves the beta: applications, review, per-account access,
+and the sign-in `kryonsec login` uses. Two documents cover it:
+
+- **[DEPLOYING-BETA.md](DEPLOYING-BETA.md)** — migrations, environment,
+  the first administrator, deploy, rollback, and the post-deploy smoke test.
+  Read this before touching production.
+- **[SECURITY-NOTES.md](SECURITY-NOTES.md)** — the credential model, and an
+  explicit list of what is *not* enforced. Read this before promising anyone
+  that access can be taken away.
+- **[API.md](API.md)** — every route, what authorises it, and what it answers.
+- **[BETA-IMPLEMENTATION-REPORT.md](BETA-IMPLEMENTATION-REPORT.md)** — what was
+  built, what was verified, and what is still blocked.
+
+Nothing about the membership-key path changed. Existing keys and published
+install scripts keep working.
+
 ## Local development
 
 From this directory, run:
@@ -48,6 +64,8 @@ The existing `CNAME` file contains `kryonsec.in`. Cloudflare Pages does not requ
 - `functions/api/feedback.js` — the feedback sink at `/api/feedback`
 - `install.sh`, `install.ps1` — the member installer, served at `/install.sh` and `/install.ps1`
 - `tests/` — endpoint checks (`node --test "tests/*.test.mjs"`)
+- `migrations/` — D1 schema, applied in order. See [DEPLOYING-BETA.md](DEPLOYING-BETA.md).
+- `.dev.vars.example` — local environment template (`.dev.vars` is git-ignored)
 - `_headers` — Cloudflare Pages security headers and CSP
 - `robots.txt`, `sitemap.xml` — crawler metadata
 
@@ -69,7 +87,27 @@ private repo's `RELEASING.md`.
 
 **`install.sh` and `install.ps1` are copies.** The canonical versions live in
 the private kryonsec repo and Cloudflare serves these. A change to the
-installer does nothing until it is copied here.
+installer does nothing until it is copied here. `tests/install-script.test.mjs`
+checks the served copy's contract (no embedded credential, browser approval,
+hash verification); the CLI repo's pytest suite exercises its behavior.
+
+## The Windows install command
+
+The documented Windows command is short, stable, and carries no credential:
+
+```powershell
+irm https://kryonsec.in/install.ps1 -OutFile "$env:TEMP\kryonsec-install.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\kryonsec-install.ps1"
+```
+
+The installer posts to `/api/beta/device/start`, prints and opens the approval
+page, and polls with `purpose: "download"`. A signed-in, entitled member
+approves the machine in the browser; the poll then returns a fresh `dl_` link
+that expires in 15 minutes and is spent on first use. The installer verifies
+the wheel's `X-Kryonsec-Wheel-SHA256` against the bytes it received and refuses
+to install a mismatch or a release with no hash. Membership keys, prepared
+`KRYONSEC_DOWNLOAD_URL` links, and the `KRYONSEC_WHEEL` override still work;
+the key is sent as a header, not in the query string.
 
 ## The license endpoint
 
