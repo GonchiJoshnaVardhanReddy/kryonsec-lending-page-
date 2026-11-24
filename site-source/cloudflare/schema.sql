@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, login TEXT NOT NULL, email TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS oauth_states(state_hash TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS applications(user_id TEXT PRIMARY KEY REFERENCES users(id), name TEXT NOT NULL, role TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','revoked')), terms_version TEXT NOT NULL, privacy_version TEXT NOT NULL, accepted INTEGER NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, subject TEXT NOT NULL, action TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS rate_limits(key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);

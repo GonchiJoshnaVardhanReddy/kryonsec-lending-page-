@@ -30,20 +30,19 @@ const renderSignin = (env) => signin({ request: new Request(`${SITE}/signin`), e
 
 // --- the homepage navigation ------------------------------------------------
 
-test("the homepage primary navigation links to /signin and keeps its other links", () => {
+test("the sculptural homepage links to the separate account portal and sections", () => {
   const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  const nav = html.match(/<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/);
+  const nav = html.match(/<nav[^>]*aria-label="Main navigation"[^>]*>([\s\S]*?)<\/nav>/);
   assert.ok(nav, "the primary navigation was not found");
-
-  const inner = nav[1];
-  assert.match(inner, /href="\/signin"[^>]*>SIGN IN<\/a>/);
-  for (const href of ["#platform", "#access", "feedback.html", "roadmap.html"]) {
-    assert.match(inner, new RegExp(`href="${href.replace(/[.#]/g, "\\$&")}"`));
+  for (const href of ["#approach", "#playground", "#questions"]) {
+    assert.ok(nav[1].includes(`href="${href}"`));
+    assert.ok(html.includes(`id="${href.slice(1)}"`));
   }
+  assert.match(html, /class="nav-cta" href="account.html"/);
 });
 
 test("every public page offers the sign-in link in its primary navigation", () => {
-  for (const page of ["index.html", "feedback.html", "roadmap.html"]) {
+  for (const page of ["feedback.html", "roadmap.html"]) {
     const html = readFileSync(new URL(`../${page}`, import.meta.url), "utf8");
     const nav = html.match(/<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/);
     assert.ok(nav, `${page}: the primary navigation was not found`);

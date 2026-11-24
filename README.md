@@ -292,3 +292,17 @@ submission it did not keep.
 Read submissions with `wrangler kv key list` / `wrangler kv key get`, or in the
 dashboard. Keys are `feedback/<timestamp>-<suffix>`, so listing is in
 chronological order.
+
+## Sculptural website release
+
+The homepage and static account screens come from Sites version 5 (source commit
+3d93ef1cdcf89249afd09db0a859c8a52f7b3f04). The complete authored static site,
+separate account Worker, schema, build script and tests live in `site-source/`.
+The new theme uses `sculptural.css`; `style.css` is retained for existing server
+pages. Existing Pages Functions, installers, and account data remain intact.
+
+The separate account portal is not activated: `/api/config` explicitly returns
+`ready: false`. See `site-source/cloudflare/DEPLOYMENT.md` for its outstanding
+OAuth, isolated database and policy configuration. Do not point this Worker's
+DB binding at the existing CLI membership database. Legacy accounts remain
+available at `/signin`; the new account screen does not use those accounts.
