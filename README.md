@@ -301,8 +301,13 @@ separate account Worker, schema, build script and tests live in `site-source/`.
 The new theme uses `sculptural.css`; `style.css` is retained for existing server
 pages. Existing Pages Functions, installers, and account data remain intact.
 
-The separate account portal is not activated: `/api/config` explicitly returns
-`ready: false`. See `site-source/cloudflare/DEPLOYMENT.md` for its outstanding
-OAuth, isolated database and policy configuration. Do not point this Worker's
-DB binding at the existing CLI membership database. Legacy accounts remain
-available at `/signin`; the new account screen does not use those accounts.
+The account page uses the deployed Pages OAuth and beta account services.
+`/api/config` advertises only providers configured at runtime and redirects
+signed-in visitors to `/dashboard`. The archived isolated Worker is not deployed.
+GitHub and Google identities are never automatically merged by email.
+
+To enable Google, create a Web application OAuth client with redirect URI
+`https://kryonsec.in/api/auth/google/callback`, then add
+`KRYONSEC_GOOGLE_CLIENT_ID` and encrypted `KRYONSEC_GOOGLE_CLIENT_SECRET` to
+Cloudflare Pages production settings and redeploy. Until configured, Google
+is visibly unavailable rather than linking to a broken authorization flow.
