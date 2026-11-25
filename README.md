@@ -41,3 +41,27 @@ Approval does not distribute a binary or grant a target-testing authorization.
 No decision emails are sent; users check the dashboard.
 
 Run `node --test tests/*.test.mjs`.
+
+## Feedback and First 50 edition
+Apply `migrations/0004_feedback_cards.sql` before deploying this version. It only
+adds tables, an approval trigger, and cards for existing approved accounts; it
+never resets account data. Existing approvals are ordered by first approval time.
+Cards #001–#050 are issued atomically on approval. Numbers remain reserved after
+revocation or account deletion. Accounts using different providers remain separate.
+
+`/feedback` requires sign-in and stores bug reports, ideas, experience ratings and
+messages privately. The review desk has a **Read tester feedback** action.
+Approved cardholders can choose a display name and download a 2400×1260 PNG from
+their dashboard. Cards are private by default. Opting into sharing enables an
+unguessable `/beta/card/<id>` page with only display name and edition number.
+Disabling sharing or revoking approval disables the public page and SVG.
+Previously downloaded images or third-party copies cannot be recalled.
+Social posts should attach the downloaded PNG; automatic image unfurling is not
+provided. No posts are sent automatically.
+
+Google setup: create a Web application client in Google Auth Platform; configure
+an External audience and the `openid`, `email`, `profile` scopes. The exact
+redirect is `https://kryonsec.in/api/auth/google/callback`. Set
+`KRYONSEC_GOOGLE_CLIENT_ID` and `KRYONSEC_GOOGLE_CLIENT_SECRET` as production
+Cloudflare Pages secrets, then redeploy. No JavaScript origin is required by this
+server-side redirect flow. Keep the secret out of the repository and chat.

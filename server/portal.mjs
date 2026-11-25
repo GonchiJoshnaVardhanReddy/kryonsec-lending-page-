@@ -1,3 +1,4 @@
+import {cardSVG,escapeXML} from '../card-art.js';
 export const POLICY='2026-11-25';
 export const OWNER_GITHUB_ID='170815623';
 export const COOKIE='__Host-kryonsec-v2';
@@ -42,6 +43,16 @@ export async function route(req,env){
  if(path==='/api/portal/config'&&req.method==='GET')return json({providers:available(env),policy_version:POLICY});
  if(!db)return json({error:'Accounts are temporarily unavailable.'},503);
  if(url.origin!==ORIGIN)return json({error:'Use kryonsec.in to access your account.'},400);
+ if(path.startsWith('/beta/card/')){
+  if(req.method!=='GET'&&req.method!=='HEAD')return json({error:'Method not allowed.'},405);
+  const match=path.match(/^\/beta\/card\/([a-f0-9]{64})(\.svg)?$/);
+  if(!match)return new Response('Card not found',{status:404});
+  const card=await db.prepare("SELECT c.number,c.display_name,c.public_id FROM portal_beta_cards c JOIN portal_applications a ON a.user_id=c.user_id WHERE c.public_id=? AND c.published=1 AND a.status='approved'").bind(match[1]).first();
+  if(!card)return new Response('This card is private or unavailable.',{status:404});
+  if(match[2])return new Response(req.method==='HEAD'?null:cardSVG(card),{headers:{'Content-Type':'image/svg+xml; charset=utf-8'}});
+  const title=escapeXML(`${card.display_name} · KryonSec First 50 #${String(card.number).padStart(3,'0')}`),href=ORIGIN+'/beta/card/'+card.public_id;
+  return new Response(req.method==='HEAD'?null:`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><meta property="og:title" content="${title}"><meta property="og:description" content="One of the first 50 approved professional beta testers of KryonSec by RahaSec."><meta property="og:url" content="${href}"><meta property="og:type" content="website"><link rel="stylesheet" href="/portal.css?v=20261125-2"></head><body><header><a class="brand" href="/">KryonSec<span>by RahaSec</span></a><a href="/account">Join the beta</a></header><main><p class="eyebrow">THE FIRST 50 / VERIFIED BETA EDITION</p><h1>${escapeXML(card.display_name)} was here at the beginning.</h1><img class="beta-card-image" src="${href}.svg" alt="${title}"><p>One of the first 50 approved professional beta accounts. A small group helping shape what comes next.</p><a class="button" href="/account">Explore the beta</a></main></body></html>`,{headers:{'Content-Type':'text/html; charset=utf-8'}});
+ }
  const auth=path.match(/^\/api\/auth\/(github|google)\/(start|callback)$/);
  if(auth){if(req.method!=='GET')return json({error:'Method not allowed.'},405);const [,provider,action]=auth;
   if(!available(env).includes(provider))return redirect('/account?error=provider_unavailable');
@@ -64,6 +75,21 @@ export async function route(req,env){
  const user=await session(req,env);if(!user)return json({error:'Sign in to continue.'},401);
  if(req.method==='POST'&&(req.headers.get('Origin')!==ORIGIN||req.headers.get('X-CSRF-Token')!==await hash(user.token+':csrf')))return json({error:'Refresh the page before trying again.'},403);
  if(path==='/api/portal/me'&&req.method==='GET'){const a=await db.prepare('SELECT * FROM portal_applications WHERE user_id=?').bind(user.id).first();return json({user:{name:user.name,email:user.email,provider:user.provider,profile_url:user.profile_url},admin:isAdmin(user),csrf:await hash(user.token+':csrf'),application:publicApplication(a),policy_version:POLICY});}
+ if(path==='/api/portal/feedback'&&req.method==='POST'){
+  let d;try{d=await body(req);}catch{return json({error:'Invalid feedback.'},400);}
+  if(!['bug','idea','experience'].includes(d.category)||typeof d.message!=='string'||d.message.trim().length<20||d.message.length>4000||!Number.isInteger(d.rating)||d.rating<1||d.rating>5)return json({error:'Choose a category and rating, and write 20–4,000 characters.'},400);
+  if(await limited(db,'feedback:'+user.id,5))return json({error:'Please wait ten minutes before sending more feedback.'},429);
+  await db.prepare('INSERT INTO portal_feedback VALUES(?,?,?,?,?,?)').bind(random(),user.id,d.category,d.message.trim(),d.rating,now()).run();return json({ok:true},201);
+ }
+ if(path==='/api/portal/card'&&req.method==='GET'){
+  const card=await db.prepare("SELECT c.number,c.display_name,c.public_id,c.published FROM portal_beta_cards c JOIN portal_applications a ON a.user_id=c.user_id WHERE c.user_id=? AND a.status='approved'").bind(user.id).first();return json({card:card||null});
+ }
+ if(path==='/api/portal/card'&&req.method==='POST'){
+  let d;try{d=await body(req);}catch{return json({error:'Invalid card settings.'},400);}
+  if(typeof d.display_name!=='string'||d.display_name.trim().length<2||Array.from(d.display_name).length>40||/[\u0000-\u001f\u007f]/.test(d.display_name)||typeof d.published!=='boolean')return json({error:'Use a display name of 2–40 characters and choose whether to share.'},400);
+  const card=await db.prepare("UPDATE portal_beta_cards SET display_name=?,published=? WHERE user_id=? AND EXISTS(SELECT 1 FROM portal_applications WHERE user_id=? AND status='approved') RETURNING number,display_name,public_id,published").bind(d.display_name.trim(),d.published?1:0,user.id,user.id).first();
+  return card?json({card}):json({error:'A First 50 card is not available for this account.'},403);
+ }
  if(path==='/api/portal/logout'&&req.method==='POST'){await db.prepare('DELETE FROM portal_sessions WHERE token_hash=?').bind(await hash(user.token)).run();const r=json({ok:true});r.headers.append('Set-Cookie',cookie(COOKIE,'',0));return r;}
  if(path==='/api/portal/apply'&&req.method==='POST'){
   if(await limited(db,'apply:'+user.id,10))return json({error:'Too many submissions. Try again later.'},429);
@@ -76,6 +102,7 @@ export async function route(req,env){
  }
  if(path.startsWith('/api/portal/admin/')){
   if(!isAdmin(user))return json({error:'Administrator access required.'},403);
+  if(path==='/api/portal/admin/feedback'&&req.method==='GET'){const page=Math.max(1,Math.min(10000,parseInt(url.searchParams.get('page'))||1));const r=await db.prepare('SELECT f.id,f.category,f.message,f.rating,f.created,u.name,u.email FROM portal_feedback f JOIN portal_users u ON u.id=f.user_id ORDER BY f.created DESC,f.id LIMIT 30 OFFSET ?').bind((page-1)*30).all();return json({feedback:r.results,page});}
   if(path==='/api/portal/admin/applications'&&req.method==='GET'){
    const filter=url.searchParams.get('status')||'all';if(!['all','pending','approved','rejected','needs_changes','revoked'].includes(filter))return json({error:'Invalid status.'},400);const page=Math.max(1,Math.min(10000,parseInt(url.searchParams.get('page'))||1));const where=filter==='all'?'':'WHERE a.status=?';const args=filter==='all'?[]:[filter];
    const result=await db.prepare(`SELECT a.*,u.email,u.provider FROM portal_applications a JOIN portal_users u ON u.id=a.user_id ${where} ORDER BY a.submitted DESC,a.id LIMIT 30 OFFSET ?`).bind(...args,(page-1)*30).all();
