@@ -1,6 +1,2 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-    <url><loc>https://kryonsec.in/</loc></url>
-    <url><loc>https://kryonsec.in/feedback.html</loc></url>
-    <url><loc>https://kryonsec.in/roadmap.html</loc></url>
-</urlset>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://kryonsec.in/</loc></url><url><loc>https://kryonsec.in/privacy.html</loc></url><url><loc>https://kryonsec.in/beta-guide.html</loc></url></urlset>
